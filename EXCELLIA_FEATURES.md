@@ -1,0 +1,549 @@
+# Excellia — Complete Feature Specification & Master Checkpoint
+
+> **This file is the saved memory of the project.** If a future session (or a future AI) gets ONLY this
+> file, it must be able to continue building without asking what Excellia is, what exists, what is next,
+> or where any feature belongs. Update the checkboxes here as work lands. The companion file
+> `EXCELLIA_MCP_PLAN.md` holds the original thesis and Phase 1–3 shipping plan; this file goes further —
+> it is the **full product**, staged so the boring working skeleton always ships before the exciting features.
+
+**Owner:** Anurag Singh
+**Repo:** `11 Excellia Core/excellia_codebase`
+**Legacy source (read-only reference):** `../05 Excellia AI/Excellia-AI-Demo` (Flask monolith: `routes.py`, `routes2.py`)
+**Concept docs (the requirements this file absorbs):** `project concept/` — add-in concept, KYC spec, Limestone spec, Excellia demo knowledge
+**Last updated:** 2026-07-12
+
+---
+
+## 0. The one paragraph
+
+Excellia is a **privacy-first, air-gapped spreadsheet intelligence engine**. One core engine (pure
+Python) does profiling, validation, anomaly detection, reconciliation, fraud scoring, KYC matching, and
+AI-assisted transformation — all on-machine, nothing leaves. Around that one brain we hang many faces:
+a **FastAPI core API**, a **thin MCP server** (so any AI agent — Claude Desktop or a fully offline
+Ollama agent — can drive it), a **web app** for big/bulk files, and an **Excel add-in** with two modes
+(a `=XAI()` formula family and a task-pane copilot). Deterministic code does the work; the LLM only
+assists, explains, and proposes — it never silently decides and never invents numbers.
+
+---
+
+## 1. STATUS BOARD — what is DONE, what is NEXT, what is LEFT
+
+### ✅ DONE (verified by 60 passing tests + API smoke test, 2026-07-12)
+
+- [x] **Core engine extracted** from the Flask monolith into `excellia/core/` — pure Python, zero
+      HTTP/GUI imports (enforced by `tests/test_imports.py`)
+  - [x] `ingest.py` — robust load (encodings, delimiter sniffing, fake-parse rejection) + full profiler
+        (type inference: number/date/currency/id/categorical/text; null rates; cardinality; stats;
+        auto-detection of GST/PAN/Aadhaar/email/phone/IFSC formats)
+  - [x] `validate.py` — declarative ruleset engine (`default`, `kyc`, `invoice`) + auto-inferred checks
+        (dominant-format violations, duplicate IDs/rows, missing values, mixed types); expression rules
+        via `df.eval`
+  - [x] `anomaly.py` — Isolation Forest with per-feature explanations, IQR column outliers,
+        rare categories, SequenceMatcher near-duplicates (sorted-neighbour O(n·k)), pattern breaks
+  - [x] `reconcile.py` — four buckets (matched / only_in_a / only_in_b / discrepancies) with
+        numeric / date-window / fuzzy tolerances, one-to-many handling
+  - [x] `models.py` — `Issue`, `Flag`, `Profile`, `ColumnProfile`, `ReconcileResult` dataclasses
+  - [x] `rules/builtin.py` — GST/PAN/Aadhaar/email/phone/IFSC compiled regexes
+- [x] **Core API** (`excellia/api/`) — `/health /profile /validate /anomalies /reconcile /rulesets`,
+      all smoke-tested end to end
+- [x] **MCP server** (`excellia/mcp_server/server.py`) — 4 tools, ~60 lines, thin (zero pandas/logic)
+- [x] **Packaging** — `pyproject.toml` with entry points `excellia-mcp`, `excellia-api`
+- [x] **Demo data** — `examples/messy_vendors.xlsx` (50 rows, seeded errors) + regenerator script
+- [x] **Tests** — 60 passing (`tests/test_core.py`, `test_builtin_rules.py`, `test_imports.py`)
+
+**Convention already locked in:** `Issue.row` / `Flag.row` are **Excel row numbers** (header = 1,
+first data row = 2). Keep this everywhere a row is reported, in every layer, forever.
+
+### ▶ NEXT — Stage A: make the MCP loop WORK end to end (do this before ANY new feature)
+
+- [ ] A1. Initial git commit (repo currently has ZERO commits — everything untracked)
+- [ ] A2. Register the MCP server in Claude Desktop config, restart, validate `examples/messy_vendors.xlsx`
+       live in a conversation — the first "it works" moment
+- [ ] A3. Build `local_agent/agent.py` (~60–100 lines): Ollama + MCP client over stdio, fully offline
+- [ ] A4. Verify the thesis: same `server.py`, two brains (Claude Desktop and Ollama), zero code changes
+- [ ] A5. Error-path hardening: instructive errors for missing file / bad ruleset / huge file through
+       every layer (the model reads error text and self-corrects)
+- [ ] A6. `pip install -e .` → working `excellia-mcp` in under 60 seconds on a clean venv, documented
+
+### ⏭ THEN — Stages B → E (features, in order; each stage's gate is in §3)
+
+- [ ] Stage B — make it USEFUL: jobs for big files, workspace persistence, saved rulesets/recipes,
+       `ask` (chat over data), `transform` (preview→confirm), reports/health score, MCP resources
+- [ ] Stage C — DOMAIN SUITES: fraud train/score, reconciliation profiles/levels/reports, KYC matching + dedupe
+- [ ] Stage D — FACES: web app (big/bulk files), Excel add-in (task pane + `=XAI()` formula mode)
+- [ ] Stage E — SHIP: polish, video, README, post, PyPI
+
+---
+
+## 2. Architecture — one brain, many faces (the placement math)
+
+```
+            HUMAN DOORS                                  AI DOORS
+ ┌─────────────────┐ ┌─────────────────┐      ┌──────────────┐ ┌───────────────────┐
+ │  Excel add-in   │ │    Web app      │      │Claude Desktop│ │ local_agent (ours)│
+ │ ┌─────────────┐ │ │  (React/vanilla)│      │ (cloud brain)│ │ (Ollama brain,    │
+ │ │ =XAI() fns  │ │ │  big & bulk     │      └──────┬───────┘ │  fully offline)   │
+ │ │ task pane   │ │ │  files          │             │MCP      └────────┬──────────┘
+ │ └─────────────┘ │ └────────┬────────┘      ┌──────▼───────┐          │MCP
+ └────────┬────────┘          │               │  MCP server  │◄─────────┘
+          │ HTTPS (local      │ HTTP          │ (thin, ours) │
+          │ add-in proxy)     │               └──────┬───────┘
+          └───────────┬───────┘                      │ HTTP (localhost only)
+                      ▼                              ▼
+        ┌─────────────────────────────────────────────────────────┐
+        │                CORE API — FastAPI                       │
+        │  sync endpoints + background JOB QUEUE + workspace      │
+        └────────────────────────────┬────────────────────────────┘
+                                     ▼
+        ┌─────────────────────────────────────────────────────────┐
+        │              CORE ENGINE — pure Python                  │
+        │ ingest · validate · anomaly · reconcile · clean · ask   │
+        │ transform · fraud · kyc · recipes · report              │
+        │        + llm.py (Ollama client, the ONLY LLM door)      │
+        └────────────────────────────┬────────────────────────────┘
+                                     ▼
+                      ┌──────────────────────────┐
+                      │ ~/.excellia/  workspace   │
+                      │ rulesets/ recipes/        │
+                      │ profiles/ models/ cache/  │
+                      │ history.jsonl             │
+                      └──────────────────────────┘
+```
+
+### 2.1 The five components (the ones we talked about) — and who owns what
+
+| Component | Build it? | What it is in this repo |
+|---|---|---|
+| **Core Engine** | **Yes — the crown jewel** | `excellia/core/` — all logic, pure Python, imports nothing outward |
+| **Core API** | **Yes — the glue** | `excellia/api/` — FastAPI; owns jobs, sessions, file handling; every endpoint calls exactly one core function |
+| **MCP Server** | **Yes — thin forever** | `excellia/mcp_server/` — describes tools, forwards to API. If it grows logic, the architecture failed |
+| **MCP Client** | **No (as a product)** | Claude Desktop ships its own. Our `local_agent` *embeds* the `mcp` Python client library — that's the only MCP-client code we write, and it lives inside the agent |
+| **Local offline AI agent/host** | **Yes — the proof** | `excellia/local_agent/` — Ollama picks tools, MCP client calls our server, zero network |
+
+### 2.2 The governing rules (never violate)
+
+1. **Human clicks a button → direct HTTP to the core API. AI decides on its own → MCP.**
+   The web app and Excel add-in are ordinary HTTP clients. They never speak MCP.
+2. **`core/` never imports from `api/`, `mcp_server/`, `local_agent/`** (test-enforced). Dependencies point inward.
+3. **Privacy:** no code path may leave the machine. The only network sockets are localhost (API, Ollama,
+   add-in proxy). Cloud OCR / cloud LLMs are opt-in plugins, never defaults, and never silent.
+4. **Deterministic-first:** if regex/pandas/sklearn can do it, the LLM must not. The LLM proposes,
+   explains, and formats — deterministic code executes and counts.
+5. **Explainability:** every Issue/Flag/score/match carries a human-readable `reason`. No black boxes.
+6. **Non-destructive:** nothing overwrites user data without an explicit confirm step. Excel add-in
+   writes to adjacent columns; `transform` requires preview→confirm; every apply is undoable/exportable.
+7. **Row convention:** Excel row numbers everywhere (header = 1, data starts at 2).
+8. **One job per MCP tool, docstrings are the interface** — write them for the model, not for humans.
+
+### 2.3 Feature → layer placement table (the "where does it live" math)
+
+| Feature (user's words) | Core module | API | MCP tool(s) | Face(s) |
+|---|---|---|---|---|
+| Profile a sheet | `ingest.py` ✅ | `POST /profile` ✅ | `profile_sheet` ✅ | all |
+| Rule validation | `validate.py` ✅ | `POST /validate` ✅ | `validate` ✅ | all |
+| Anomaly detection | `anomaly.py` ✅ | `POST /anomalies` ✅ | `detect_anomalies` ✅ | all |
+| Reconciliation (basic) | `reconcile.py` ✅ | `POST /reconcile` ✅ | `reconcile` ✅ | all |
+| **AI chat over data** | `ask.py` + `llm.py` | `POST /ask` | `ask_data` | task pane chat, web app chat, any MCP host |
+| **AI transform (2 modes: bulk + formula)** | `transform.py` + `clean.py` + `llm.py` | `POST /transform/preview`, `/transform/apply`, `POST /clean` | `transform_preview`, `transform_apply` | add-in task pane (bulk), `=XAI()` (per-cell), web app |
+| **Fraud analysis (train on labelled data, then score)** | `fraud.py` | `/fraud/train /fraud/score /fraud/models /fraud/evaluate` | `train_fraud_model`, `score_fraud`, `list_fraud_models` | web app wizard, MCP |
+| **Financial reconciliation (pro: profiles, cleaning, levels, reports)** | `reconcile.py` (grow) + `clean.py` + `report.py` | `/reconcile/profiles` CRUD + `/reconcile/run` | `run_reconciliation_profile`, `save_reconciliation_profile` | web app, MCP |
+| **KYC analysis (name match, dedupe, ID checks, OCR later)** | `kyc.py` (+ `ocr.py` optional extra) | `/kyc/match_names /kyc/dedupe` | `match_names`, `dedupe_rows` | web app, add-in `=XAI.MATCH`, MCP |
+| Deterministic cleaning formulas (Limestone library) | `clean.py` | `POST /clean` | (used via transform) | web app, task pane |
+| Saved rulesets / recipes / profiles / models | `store.py` (workspace) | CRUD endpoints | MCP **resources** + save/list tools | all |
+| Big-file & bulk processing | chunking in `ingest.py` | **job queue** in API | `start_job`-style async variants + `job_status` | web app primarily |
+| Reports & exports (highlighted xlsx, health score) | `report.py` | `POST /report` | `export_report` | all |
+| Excel add-in `=XAI(...)` formula | — (face) | consumes `/transform`, `/ask`, `/kyc`, `/validate` | — | Excel custom functions |
+| Excel add-in task pane | — (face) | consumes API + jobs | — | Excel task pane |
+| Web app | — (face) | consumes everything | — | browser |
+
+**Rule of thumb encoded above:** anything that *computes* lives in `core/`. Anything that *waits, queues,
+stores, or authenticates* lives in `api/`. Anything that *describes tools to a model* lives in
+`mcp_server/`. Anything that *renders pixels* is a face. When unsure: if it needs pandas → core; if it
+needs a socket → api; if it needs a docstring an LLM will read → mcp_server; if it needs a human eye → face.
+
+---
+
+## 3. Stage gates — the order of work and the definition of "done" for each
+
+> **The iron rule you set: FIRST a working MCP server/client/agent loop, THEN the feature buildout.**
+> A stage is not started until the previous stage's gate is fully checked. No skipping because a
+> feature is exciting. Excitement is how monoliths happen.
+
+### Stage A — WORKING (the skeleton breathes) — *current stage*
+
+Goal: a stranger (or you on a fresh machine) can `pip install`, paste one config block, restart
+Claude Desktop, and watch a real validation happen. And the same server drives from offline Ollama.
+
+- [ ] A1. **Git baseline.** `git add -A && git commit` (repo has zero commits). Tag `v0.1.0-core`.
+- [ ] A2. **Claude Desktop integration.**
+  - [ ] Write `claude_desktop_config.json` snippet into README (command: `excellia-mcp`, no args, stdio)
+  - [ ] Start `excellia-api` (uvicorn, 127.0.0.1:8000) — document that MCP tools need it running;
+        better: `excellia-mcp` auto-spawns the API as a subprocess if `/health` fails (keep the code thin —
+        subprocess spawn ≠ logic)
+  - [ ] Live test: "profile examples/messy_vendors.xlsx and tell me what's wrong with it" in Claude Desktop
+- [ ] A3. **`local_agent/agent.py`** — the air-gapped proof (~100 lines max):
+  - stdio MCP client (`mcp` package) connects to `excellia-mcp`
+  - `tools/list` → convert tool schemas to Ollama function-calling format
+  - REPL loop: user prompt → Ollama (e.g. `llama3.1`, `qwen2.5`, `gemma3`) → tool call(s) → results → answer
+  - Entry point `excellia-agent` in pyproject
+  - [ ] Demo transcript saved to `docs/local_agent_demo.md`
+- [ ] A4. **Same-server proof:** run A2's exact prompt through A3. Zero changes to `server.py`. Screenshot both.
+- [ ] A5. **Instructive errors end to end** (the model must be able to self-correct):
+  - missing file → "File not found: X. Provide an absolute path or a path relative to <cwd>."
+  - unknown ruleset → lists available rulesets ✅ (core already does; surface through MCP text)
+  - non-tabular / unsupported file → names supported extensions ✅
+  - API down → MCP tool returns "Excellia core API is not running. Start it with `excellia-api`." not a stack trace
+- [ ] A6. **60-second install** on a clean venv, timed, steps written at the top of README.
+
+**GATE A (all must be true):** live Claude Desktop demo ✔ · live offline agent demo ✔ · both from one
+unchanged server ✔ · fresh-machine install < 60s ✔ · committed & tagged ✔
+
+### Stage B — USEFUL (an analyst would actually keep it installed)
+
+Goal: real files (100K–1M rows), saved knowledge (rulesets/recipes), the two LLM pillars (`ask`,
+`transform`) with hard anti-hallucination guardrails, and readable outputs.
+
+- [ ] B1. **Workspace** — `excellia/core/store.py`; root = `EXCELLIA_HOME` env or `~/.excellia/`
+  - `rulesets/*.json`, `recipes/*.json`, `profiles/*.json`, `models/*.joblib + *.meta.json`,
+    `cache/`, `history.jsonl` (audit trail of every run: timestamp, op, file hash, params, result summary)
+  - [ ] Audit trail is append-only and every layer writes through one function
+- [ ] B2. **Big files** — `ingest.load` gains `chunked=True` path (xlsx via openpyxl read-only mode;
+      csv via chunked readers); `profile`/`validate` stream per chunk and merge results; memory test
+      with a generated 500K-row file must stay under ~1.5 GB RSS
+- [ ] B3. **Job queue in the API** (never in core): `POST /jobs {op, params} → job_id`,
+      `GET /jobs/{id}` → `{status, progress, result?}`; ThreadPool executor; results parked on disk;
+      sync endpoints stay for small files. MCP additions: `job_status(job_id)` tool; long-running MCP
+      tools accept `async_=True` and return a job_id with instructions to poll.
+- [ ] B4. **Rulesets become data, not code:** CRUD via `store.py` + API + MCP tools
+      `save_ruleset(name, spec)`, and MCP **resources** `ruleset://<name>` so hosts can read them as context.
+      Ship starter packs: `kyc`, `invoice`, `payroll`, `bank-statement`.
+- [ ] B5. **`llm.py` — the only LLM door** (core):
+  - Ollama HTTP client (`OLLAMA_URL` env, default `http://127.0.0.1:11434`), model picker
+    (`EXCELLIA_MODEL` env, else best installed), health check, timeout, retry-once
+  - **Strict-JSON contract helper:** prompt template + `json.loads` + one repair-reprompt + typed
+    fallback `{status:"error", reason:"parse_failed"}` (the KYC doc's lesson, generalised)
+  - Unit-testable with a fake transport; **zero LLM calls anywhere else in core except via this module**
+- [ ] B6. **`ask.py` — AI chat over data that cannot lie about numbers:**
+  - Pipeline: LLM sees *schema + profile + 20 sample rows only* → returns a **query plan** as strict JSON
+    (`{filter?, group_by?, aggregate?, sort?, limit?}` — a safe whitelist, executed by pandas, never eval
+    of raw LLM code) → engine computes the real table → LLM narrates the computed result
+  - Response shape: `{answer: str, evidence: table, plan: json}` — the evidence table is always returned,
+    so every number in the prose is checkable
+  - [ ] Refusal path: question needs data it can't see → says so, suggests the tool that can
+- [ ] B7. **`clean.py` — the deterministic formula library** (Limestone's formulas + GUI's edit panel + apply_formats2, unified):
+  trim/collapse · case (upper/lower/title/sentence) · replace/remove char · split column by delimiter ·
+  concat columns · math ops between columns · abs · date/time parse+format · currency detect/strip ·
+  drop empty rows/cols · redefine header row · dedupe rows (with keep/aggregate strategy: first/last/sum/max) ·
+  fill down · L/R/B string slice. Every op = `{op, params}` JSON — **this is the recipe atom.**
+- [ ] B8. **`transform.py` — propose → preview → confirm → apply (never silent):**
+  - Input: instruction ("split address into street/city/pin", "mark rows taggable/non-taggable by X")
+  - LLM maps instruction to: (a) a sequence of `clean.py` ops when deterministically possible, else
+    (b) a per-row LLM op (`llm_map` with a strict output schema), else (c) a mix
+  - `preview(df, instruction)` → recipe JSON + before/after on a 20-row sample; `apply(df, recipe)`
+    executes on the full data (per-row LLM ops run threaded, progress reported via job)
+  - Output goes to **new columns** (`<col>_ai` suffix) unless `replace=True` is explicitly passed
+  - [ ] Undo: apply returns an inverse patch or the pre-image is parked in workspace cache
+  - [ ] **Recipes are saved and replayable** — next month's file runs last month's cleanup in one call:
+        `run_recipe(file, recipe_name)`
+- [ ] B9. **`report.py`** — everything the GUI's export did, engine-side:
+  - highlighted xlsx (colour per issue kind, priority: outlier > intra-dup > cross-dup > mixed > format —
+    the legacy priority order), summary sheets, per-column summary
+  - **Data Health Score** (port the legacy heuristic: start 100; weighted deductions — outliers 0.8/pct,
+    mixed 0.5/pct, missing 0.4/pct, format 0.3/pct, dups 0.2/pct) with the breakdown shown, never a bare number
+  - one-page quality summary (score, top issues, before/after when a recipe ran)
+- [ ] B10. **MCP surface v2** (server stays thin — every tool is still a forward):
+      `ask_data`, `transform_preview`, `transform_apply`, `run_recipe`, `save_ruleset`, `export_report`,
+      `job_status` + resources for rulesets/recipes. Rewrite every docstring against the checklist in §12.
+
+**GATE B:** 500K-row file profiles+validates without OOM ✔ · `ask` returns evidence tables and refuses
+gracefully ✔ · a transform previews, applies non-destructively, saves as a recipe, and replays on a second
+file ✔ · Claude Desktop and local agent can both do all of the above ✔ · health-score xlsx report opens in Excel ✔
+
+### Stage C — DOMAIN SUITES (fraud · reconciliation pro · KYC)
+
+Goal: the three money features. Each is a deep vertical on top of Stage B plumbing.
+
+#### C1. Fraud analysis (`core/fraud.py`) — supervised, honest, explainable
+
+The user story (yours, formalised): *"Give fraud-detected data as training input — then, for accuracy,
+they upload fresh data and the system scores it."*
+
+- [ ] `train(df, label_column, model_name, positive_label=None) -> FraudModelCard`
+  - sklearn Pipeline: impute → one-hot low-cardinality categoricals → scale numerics →
+    **GradientBoosting** (default) or RandomForest (option); class imbalance via class weights;
+    stratified 5-fold CV
+  - **ModelCard** (saved as `models/<name>.meta.json` beside the `.joblib`): rows, class balance,
+    features used/dropped, CV **precision / recall / F1 / ROC-AUC**, confusion matrix at the chosen
+    threshold, top-15 feature importances, trained-at, data fingerprint (schema hash — NOT the data)
+  - [ ] Refuses with an instructive error when: label column missing, single-class, < 200 usable rows,
+        or leakage suspected (a feature that equals the label or correlates ≈1.0 — name it in the error)
+- [ ] `score(df, model_name, threshold=None) -> list[FraudScore]`
+  - per row: `fraud_probability` (0–1), `risk_band` (low/medium/high/critical by quantile or fixed
+    thresholds from the card), **`top_factors`** — the 3 features pushing this row's score up, with values
+    (tree SHAP-style contributions or permutation fallback; never a bare probability)
+  - schema drift check: missing/extra columns vs the card → warn or refuse, listing the difference
+- [ ] `evaluate(df, label_column, model_name) -> metrics` — the "for accuracy" step: user uploads a
+      labelled holdout, gets honest precision/recall/confusion on data the model never saw
+- [ ] Unsupervised fallback stays `detect_anomalies` — and the fraud tool's docstring says exactly when
+      to use which ("no labelled history → use detect_anomalies")
+- [ ] API: `POST /fraud/train` (job — training can be slow), `POST /fraud/score`, `POST /fraud/evaluate`,
+      `GET /fraud/models`; MCP: `train_fraud_model`, `score_fraud`, `evaluate_fraud_model`, `list_fraud_models`
+- [ ] Honesty guardrails baked into tool output text: metrics always attached; wording is
+      "risk score", never "this IS fraud"; card shown on every score response
+
+#### C2. Financial reconciliation PRO (grow `core/reconcile.py` + `clean.py` + `report.py`)
+
+Everything Limestone did, minus the GUI debt:
+
+- [ ] **Match levels** on every matched/discrepant record: `L1` exact · `L2` within tolerance ·
+      `L3` fuzzy-key match (opt-in per profile) — analysts triage by level
+- [ ] **Variance columns** for numeric discrepancies: `diff_abs`, `diff_pct` per differing field
+- [ ] **Pre-steps** in the profile: cleaning recipe per source + dedupe (with aggregation strategy —
+      e.g. sum amounts on duplicate txn IDs) before matching
+- [ ] **Profiles** (`profiles/*.json`): `{name, source_a_hint, source_b_hint, keys, tolerance,
+      pre_recipe_a, pre_recipe_b, dedupe, report_options}` — one-click monthly runs:
+      `run_reconciliation_profile(file_a, file_b, profile_name)`
+- [ ] **Reconciliation report xlsx**: sheets = Summary (counts, match rate, variance totals) /
+      Matched (with level) / Only-in-A / Only-in-B / Discrepancies (side-by-side a|b + variance)
+- [ ] **History** → `history.jsonl` (profile, files hash, bucket counts, match rate) — feeds the web-app dashboard
+- [ ] API: profiles CRUD + `POST /reconcile/run` (job for big pairs); MCP: `run_reconciliation_profile`,
+      `save_reconciliation_profile`, resource `profile://<name>`
+
+#### C3. KYC analysis (`core/kyc.py`, OCR as optional extra)
+
+- [ ] **Hybrid name matching** (the KYC tool's algorithm, generalised):
+  - `name_similarity(a, b) -> float` — normalise (lower, strip punctuation, collapse spaces) →
+    `SequenceMatcher.ratio()*100`
+  - `match_names(df, col_a, col_b | group_by, llm_verify=False, seq_threshold=50)` — bulk nC2 within
+    groups or pairwise columns; when `llm_verify` and similarity ≥ threshold, `llm.py` renders the
+    strict-JSON verdict `{status: match|no_match, match_percent, reason}` (system prompt: the
+    "strict fraud-screening name assistant" from the KYC spec); parse-failure → deterministic score
+    with `verdict: "unverified"` — never a crash
+  - output per pair: both names, seq %, verdict, llm %, reason
+- [ ] **KYC dedupe** `dedupe(df, columns, threshold, strategy)` — near-duplicate *entity* resolution
+      built on the same similarity (clusters, keeps a canonical row, reports merges) — distinct from
+      row-level near-dup flags in `anomaly.py`
+- [ ] **ID validation** = existing `kyc` ruleset ✅ (PAN/Aadhaar/GST/IFSC formats + uniqueness) — done
+- [ ] **OCR (later, optional):** `pip install excellia[ocr]` → `ocr.py` with **local Tesseract only**
+      (Google Cloud Vision is cloud → excluded from default; may exist as an explicitly-named opt-in
+      plugin, never silent). Regex dictionary from the KYC spec (Aadhaar `\d{4}\s?\d{4}\s?\d{4}`, PAN,
+      GSTIN, DOB, gender) + optional local-LLM cleanup of noisy OCR text into the JSON schema.
+      Extract → validate through the `kyc` ruleset automatically.
+- [ ] API: `/kyc/match_names` (job when bulk), `/kyc/dedupe`; MCP: `match_names`, `dedupe_rows`
+
+**GATE C:** train a fraud model on a labelled demo file, evaluate on a holdout, score a fresh file with
+per-row reasons ✔ · a saved reconciliation profile runs end to end producing the 5-sheet report ✔ ·
+bulk name matching with LLM verify produces the verdict file offline ✔ · every output carries reasons ✔
+
+### Stage D — FACES (web app + Excel add-in)
+
+#### D1. Web app (`webapp/`) — the big-file / bulk door
+
+The legacy Flask GUI's replacement, but as a **pure client of the core API** (nothing computes in the web layer):
+
+- [ ] Stack: **React + Vite + TypeScript** (the vanilla-JS era ends here; the add-in stays vanilla)
+- [ ] Views:
+  - [ ] **Upload & Preview** — drag-drop, sheet picker, first-50 preview, header redefine, quick clean
+        buttons (all `POST /clean`)
+  - [ ] **Quality dashboard** — run checks, health score with breakdown, issue explorer (filter by
+        column/rule/severity), download highlighted report
+  - [ ] **Transform studio** — instruction box → preview diff (sample) → confirm → job progress →
+        recipe save/load (the analyst-in-the-loop UI for `transform`)
+  - [ ] **Chat with data** — `ask` panel showing answer + evidence table + plan (trust through glass)
+  - [ ] **Reconciliation** — two-file wizard, profile picker/editor, results in four tabs, report download
+  - [ ] **Fraud** — train wizard (pick label column → metrics card) · score view (risk bands, top factors,
+        sortable) · evaluate view
+  - [ ] **KYC** — name-match & dedupe runners with verdict tables
+  - [ ] **Bulk mode** — N files × one ruleset/recipe → job matrix, roll-up summary, zip of reports
+  - [ ] **Jobs & History** — live progress (poll `GET /jobs/{id}`), audit-trail browser fed by `history.jsonl`
+- [ ] Big-file UX: chunked upload; server-side we already stream (B2); UI never freezes (jobs from B3)
+- [ ] Auth: **none in v1** (localhost, single analyst) — session isolation only (per-session upload dirs, no more global-state collisions like the legacy app)
+
+#### D2. Excel add-in (`addin/`) — the two data-manipulation modes you specified
+
+Architecture (from the proven add-in concept doc): Office.js task pane + **local HTTPS proxy**
+(Node/Express + `office-addin-dev-certs` + `http-proxy-middleware`) because Office panes are HTTPS and
+localhost APIs are HTTP (mixed-content wall). **One change from the old concept: the proxy forwards to
+the CORE API (port 8000), never straight to Ollama** — so every feature (validate, transform, ask, match)
+arrives in Excel automatically, and logic keeps living in exactly one place.
+
+**Mode 1 — Formula mode: the `=XAI()` family (Excel custom functions):**
+
+- [ ] `=XAI(range, prompt)` — the general one: per-cell/per-row AI transform, returns value(s)
+      (e.g. `=XAI(A2, "extract the pin code")`)
+- [ ] `=XAI.SPLIT(range, "street | city | state | pin")` — **split address** (and anything else) into
+      parts; returns a dynamic **spilled array** across adjacent columns with a header row
+- [ ] `=XAI.TAG(range, "criteria for taggable")` — **mark taggable / non-taggable** (binary or labelled
+      classification per cell; e.g. `=XAI.TAG(B2:B500, "is this a corporate customer?")` → Yes/No spill)
+- [ ] `=XAI.ASK("question about the used range or a range")` — one-cell answer, backed by `ask`'s
+      evidence pipeline (never invents; the evidence table is one click away in the task pane)
+- [ ] `=XAI.VALIDATE(range, "pan|gst|email|ifsc|aadhaar|phone")` — deterministic regex verdicts,
+      **zero LLM** (the IFSC-validator lesson: never use a model where a regex is perfect)
+- [ ] `=XAI.MATCH(a, b)` — KYC name-similarity score between two cells/ranges
+- [ ] Engineering rules for formula mode:
+  - custom functions batch: coalesce all pending calls in a calc pass into ONE API request (per function+prompt)
+  - **cache** keyed by `(cell value, prompt, model)` in workbook settings + workspace cache — a recalc
+    or file reopen must NOT re-run the LLM on unchanged cells
+  - volatile off; cancellation supported; errors surface as `#XAI!` with the reason in a comment
+  - long batches hand off to a task-pane job with progress instead of freezing calc
+
+**Mode 2 — Task-pane copilot (bulk, the old add-in concept upgraded):**
+
+- [ ] Smart range selection (`getUsedRangeOrNullObject` intersection — never send a million empty rows)
+- [ ] Operations: Chat (with data context) · Extract/Transform · Categorise · Summarise · Keywords ·
+      Simplify JSON · Validate formats · Name match — all mapped to core API endpoints, not local prompts
+- [ ] Processing modes: **Combined** (one batched call, JSON-array contract with line-split fallback) and
+      **Per-row** (live typewriter updates, row-N-of-M status) — user-selectable, as designed
+- [ ] **Non-destructive always:** writes to adjacent empty column / appended rows; AI-written cells get
+      the visual accent (blue + italic header); explicit "replace" requires a confirm dialog
+- [ ] Preview→confirm for anything touching > 1 column (reuses `transform_preview`)
+- [ ] Model & connection status pill (Ollama up? API up? which model?)
+- [ ] Abort button (AbortController) — the old concept's known gap, fixed
+- [ ] Manifest + sideload instructions; later: AppSource submission (much later)
+
+**GATE D:** web app runs a 500K-row file through checks→transform→report without a freeze ✔ ·
+`=XAI.SPLIT` spills a parsed address; recalc hits cache, not the LLM ✔ · task pane batch-categorises a
+column non-destructively with live progress ✔ · Excel/web app touched ZERO new logic in core (diff proves it) ✔
+
+### Stage E — SHIP
+
+- [ ] README rewrite: thesis first sentence → 60-second install → Claude Desktop block → offline agent →
+      honest privacy table (what stays local / what a cloud host sees: prompt, path, tool RESULTS)
+- [ ] 90-second screen recording: Claude Desktop cleans `messy_vendors.xlsx` (per original plan §8)
+- [ ] Second recording (30s): the same thing fully offline via `local_agent` — the differentiator
+- [ ] The post: *"Why enterprise AI logic should be an MCP server, not an app"*
+- [ ] PyPI publish (`pip install excellia`), version tags, CHANGELOG
+- [ ] `SECURITY.md` (threat model: local sockets only, what each host sees) + `CONTRIBUTING.md`
+
+---
+
+## 4. Full API surface after Stage D (reference)
+
+```
+# sync (small files)
+GET  /health                       POST /profile        POST /validate
+POST /anomalies                    POST /reconcile      POST /ask
+POST /clean                        POST /transform/preview
+POST /transform/apply              POST /report
+POST /kyc/match_names              POST /kyc/dedupe
+POST /fraud/score                  POST /fraud/evaluate
+
+# workspace CRUD
+GET/POST/PUT/DELETE /rulesets[/{name}]      /recipes[/{name}]
+GET/POST/PUT/DELETE /reconcile/profiles[/{name}]
+GET /fraud/models    GET /history
+
+# async (big files / slow ops) — everything above accepts {"async": true}
+POST /jobs {op, params} -> {job_id}
+GET  /jobs/{id} -> {status: queued|running|done|error, progress, result_path?, error?}
+GET  /jobs -> list
+```
+
+## 5. Full MCP tool list after Stage C (server still < ~300 lines, still zero logic)
+
+| Tool | One job |
+|---|---|
+| `profile_sheet` ✅ | understand an unfamiliar file |
+| `validate` ✅ | rule violations with row/col/reason |
+| `detect_anomalies` ✅ | statistical suspects with confidence+reason |
+| `reconcile` ✅ | quick two-file compare |
+| `ask_data` | question → answer + evidence table (never invents numbers) |
+| `transform_preview` | instruction → recipe + before/after sample (nothing changes yet) |
+| `transform_apply` | apply a previewed recipe; new columns unless told otherwise |
+| `run_recipe` | replay a saved cleanup on a new file |
+| `save_ruleset` / `save_reconciliation_profile` | persist reusable configs |
+| `run_reconciliation_profile` | one-click monthly reconciliation |
+| `train_fraud_model` | labelled file → model + honest metrics card |
+| `evaluate_fraud_model` | labelled holdout → real-world accuracy |
+| `score_fraud` | fresh file → per-row risk + top factors |
+| `list_fraud_models` | model cards |
+| `match_names` | KYC hybrid name matching (offline LLM verify optional) |
+| `dedupe_rows` | entity-level near-duplicate resolution |
+| `export_report` | highlighted xlsx / summary / health score |
+| `job_status` | poll long-running work |
+
+Resources: `ruleset://<name>` · `recipe://<name>` · `profile://<name>` · `fraudmodel://<name>` (card JSON).
+
+## 6. Workspace layout (`EXCELLIA_HOME`, default `~/.excellia/`)
+
+```
+~/.excellia/
+  rulesets/kyc.json invoice.json payroll.json ...
+  recipes/<name>.json            # ordered clean/transform ops — the replayable atoms
+  profiles/<name>.json           # reconciliation profiles
+  models/<name>.joblib           # fraud pipelines
+  models/<name>.meta.json        # ModelCards (metrics, features, fingerprints — never data)
+  cache/                         # transform pre-images (undo), =XAI() response cache
+  history.jsonl                  # append-only audit trail of every run
+  uploads/ jobs/                 # API working dirs (auto-cleaned, TTL)
+```
+
+## 7. What we explicitly do NOT build (scope discipline, inherited + extended)
+
+- No cloud LLM/OCR calls by default, ever. Opt-in plugins must be loudly named (`excellia[gcv]`) and logged.
+- No general agent framework, no multi-tenant platform, no auth/RBAC in v1 (localhost, one analyst).
+- No MCP client as a product (hosts bring their own; ours lives only inside `local_agent`).
+- No "works with any data source" — spreadsheets (xlsx/xlsm/xls/csv/tsv). That's the trust surface.
+- No writing into users' original files — exports are always new files; add-in writes adjacent.
+- No fat MCP server. The moment `server.py` imports pandas, stop and refactor.
+- Not six shallow servers — one deep one. Fraud/KYC/reconcile are TOOLS on the same server, not new servers.
+
+## 8. Testing strategy per stage
+
+- **A:** agent loop integration test with a scripted fake-Ollama transport; MCP tool-schema snapshot test;
+  error-message tests (every instructive error string asserted)
+- **B:** 500K-row memory test (RSS budget); `ask` plan-executor property tests (plan whitelist can't be
+  escaped — adversarial strings in filters); recipe round-trip (save→load→replay determinism);
+  report xlsx opened+parsed by openpyxl in tests
+- **C:** fraud on synthetic labelled data (known signal → metrics floor asserted; leakage detector fires
+  on a planted leak); reconciliation profile end-to-end on Limestone-shaped fixtures (CMS vs Switch style);
+  KYC matcher golden pairs (hindi-transliteration variants, initials, honorifics)
+- **D:** API-contract tests shared by web app and add-in (schemathesis or recorded fixtures);
+  add-in custom-function batching/caching unit tests (Node); Playwright smoke for the web app
+- **Always:** `core` purity test ✅ (already exists — extend forbidden list with `ollama`? no: `llm.py`
+  talks raw HTTP via stdlib/`urllib` or is the single allowed exception, decided in B5)
+
+## 9. Risk register (what will bite, and the plan)
+
+| Risk | Mitigation |
+|---|---|
+| Local LLMs return malformed JSON constantly | B5's strict-JSON contract with repair-reprompt + typed fallback; NEVER a raw `json.loads` outside `llm.py` |
+| `ask` becomes a hallucination machine | plan-whitelist executor; evidence table mandatory; numbers only from pandas |
+| Big xlsx eats RAM | read-only/streaming openpyxl, chunked csv, job queue, RSS test in CI |
+| Fraud model overfits tiny data / leaks labels | min-rows refusal, CV-only metrics, leakage detector, honest wording rules |
+| Excel custom functions re-fire on every recalc → LLM cost/time explosion | (value,prompt) cache + batching + non-volatile registration |
+| Office HTTPS wall blocks local API | the proven proxy pattern (dev-certs + express middleware), documented |
+| Scope creep (this very file is huge) | stage gates are sequential and blocking; §7 list; MCP server line-count as a canary |
+| Windows-first paths (legacy habit) | `pathlib` everywhere, CI on ubuntu+windows |
+
+## 10. Milestone → announcement mapping (marketing is part of shipping)
+
+- Gate A → repo public + "install in 60s" README
+- Gate B → the 90-second Claude Desktop video
+- Gate C → the offline-agent video + the architecture post
+- Gate D → web app screenshots thread + add-in sideload guide
+- Gate E → PyPI + the "one deep server" post
+
+## 11. Decisions already made (do not relitigate without a reason)
+
+1. FastMCP over raw MCP SDK; stdio transport (no ports for the AI door)
+2. Excel row numbers in every user-facing row reference
+3. LLM assists, deterministic code decides; regex beats model where regex is perfect
+4. The add-in proxy forwards to the core API, not to Ollama (changed from the legacy concept — on purpose)
+5. React for the web app; vanilla JS stays only in the add-in pane
+6. GradientBoosting default for fraud (RandomForest option); ModelCards mandatory
+7. Tesseract-only OCR by default; cloud OCR = loud opt-in extra
+8. Job queue lives in the API layer; core stays synchronous and pure
+9. `~/.excellia` workspace; append-only `history.jsonl` audit trail
+10. One deep MCP server, never six shallow ones
+
+## 12. Docstring checklist for every MCP tool (the craft that decides adoption)
+
+Every tool docstring must answer, in ≤ 4 sentences: **when to reach for it** (trigger words an agent
+recognises) · **what it needs** (and what happens with defaults) · **what comes back** (keys, units,
+row-number convention) · **what to do on failure** (the next tool or the fix). Error strings are part
+of the interface: name the problem, name the fix, name the alternative tool.
+
+---
+
+*End of checkpoint. Build Stage A next. Update checkboxes as you land work — this file is the memory.*

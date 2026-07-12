@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "excellia"
+version = "0.1.0"
+description = "Air-gapped spreadsheet validation engine exposed as an MCP server. Your data never leaves the machine."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Anurag Singh", email = "anuragsingh2445@gmail.com" }]
+keywords = ["mcp", "spreadsheet", "validation", "data-quality", "air-gapped", "on-premise"]
+dependencies = [
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "scikit-learn>=1.3",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "requests>=2.31",
+    "mcp>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+
+[project.scripts]
+excellia-mcp = "excellia.mcp_server.server:main"
+excellia-api = "excellia.api.main:serve"
+
+[tool.hatch.build.targets.wheel]
+packages = ["excellia"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
