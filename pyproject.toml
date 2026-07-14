@@ -28,6 +28,7 @@ dev = ["pytest>=8.0", "httpx>=0.27"]
 [project.scripts]
 excellia-mcp = "excellia.mcp_server.server:main"
 excellia-api = "excellia.api.main:serve"
+excellia-agent = "excellia.local_agent.agent:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["excellia"]

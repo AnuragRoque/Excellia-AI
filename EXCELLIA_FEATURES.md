@@ -28,7 +28,7 @@ assists, explains, and proposes — it never silently decides and never invents 
 
 ## 1. STATUS BOARD — what is DONE, what is NEXT, what is LEFT
 
-### ✅ DONE (verified by 60 passing tests + API smoke test, 2026-07-12)
+### ✅ DONE — Phase 1 core + Stage A working loop (72 tests + live MCP demo, 2026-07-12)
 
 - [x] **Core engine extracted** from the Flask monolith into `excellia/core/` — pure Python, zero
       HTTP/GUI imports (enforced by `tests/test_imports.py`)
@@ -49,21 +49,36 @@ assists, explains, and proposes — it never silently decides and never invents 
 - [x] **MCP server** (`excellia/mcp_server/server.py`) — 4 tools, ~60 lines, thin (zero pandas/logic)
 - [x] **Packaging** — `pyproject.toml` with entry points `excellia-mcp`, `excellia-api`
 - [x] **Demo data** — `examples/messy_vendors.xlsx` (50 rows, seeded errors) + regenerator script
-- [x] **Tests** — 60 passing (`tests/test_core.py`, `test_builtin_rules.py`, `test_imports.py`)
+- [x] **Tests** — 72 passing + 1 opt-in live MCP integration test (`tests/`)
 
 **Convention already locked in:** `Issue.row` / `Flag.row` are **Excel row numbers** (header = 1,
 first data row = 2). Keep this everywhere a row is reported, in every layer, forever.
 
-### ▶ NEXT — Stage A: make the MCP loop WORK end to end (do this before ANY new feature)
+### ✅ Stage A — WORKING (the MCP loop breathes end to end) — DONE 2026-07-12
 
-- [ ] A1. Initial git commit (repo currently has ZERO commits — everything untracked)
-- [ ] A2. Register the MCP server in Claude Desktop config, restart, validate `examples/messy_vendors.xlsx`
-       live in a conversation — the first "it works" moment
-- [ ] A3. Build `local_agent/agent.py` (~60–100 lines): Ollama + MCP client over stdio, fully offline
-- [ ] A4. Verify the thesis: same `server.py`, two brains (Claude Desktop and Ollama), zero code changes
-- [ ] A5. Error-path hardening: instructive errors for missing file / bad ruleset / huge file through
-       every layer (the model reads error text and self-corrects)
-- [ ] A6. `pip install -e .` → working `excellia-mcp` in under 60 seconds on a clean venv, documented
+- [x] A1. Initial git commit + tag `v0.1.0-core` (was zero commits)
+- [~] A2. Claude Desktop: config block written in README + `docs/local_agent_demo.md`; MCP chain
+       proven working via a live stdio client (`tests/test_mcp_integration.py`, opt-in). **Manual
+       step left for the user:** paste the block into `claude_desktop_config.json` and restart —
+       can't be automated from here (GUI app).
+- [x] A3. `local_agent/agent.py` — Ollama + MCP stdio client, offline REPL + one-shot; entry point
+       `excellia-agent`. Verified live with `llama3.2:latest`.
+- [x] A4. Thesis proven: same unchanged `server.py` driven by (a) the offline Ollama agent and
+       (b) a raw MCP stdio client (stands in for any host incl. Claude Desktop). Transcript in
+       `docs/local_agent_demo.md`.
+- [x] A5. Instructive errors through every layer + a robustness win: null-sentinel strings
+       (`"null"`/`"none"`/`""`) that local models pass for optional params are coerced to real
+       `None` at the API boundary. Error strings asserted in `tests/test_api_errors.py`.
+- [~] A6. One-command install verified in a clean venv; all three entry points
+       (`excellia-mcp/api/agent`) work. **Honest timing:** ~2.5 min from a bare venv because the
+       pandas/scipy/scikit-learn wheels dominate — the literal "under 60s from scratch" target does
+       NOT hold. For the realistic user (scientific Python already installed) it's seconds. README
+       claim corrected to match reality.
+
+**Hard-won fix (don't regress):** on Windows the MCP server must spawn the core API **detached**
+(`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, stdin/stdout to DEVNULL).
+Spawned inline as a grandchild inheriting the host's JSON-RPC stdio pipes, uvicorn silently fails
+to finish binding and every tool call hangs. `tests/test_mcp_integration.py` guards this.
 
 ### ⏭ THEN — Stages B → E (features, in order; each stage's gate is in §3)
 
