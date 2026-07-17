@@ -10,7 +10,10 @@
 **Repo:** `11 Excellia Core/excellia_codebase`
 **Legacy source (read-only reference):** `../05 Excellia AI/Excellia-AI-Demo` (Flask monolith: `routes.py`, `routes2.py`)
 **Concept docs (the requirements this file absorbs):** `project concept/` — add-in concept, KYC spec, Limestone spec, Excellia demo knowledge
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-17 (Stage B landed: store/llm/clean/ask/transform/report modules, chunked
+big-file paths, job queue, workspace CRUD, MCP v2 with 11 tools + resources — 172 tests passing,
+plus opt-in 500K-row memory test and live MCP stdio test, plus a live offline `ask` smoke against
+local Ollama. Next: Stage C domain suites — fraud, reconciliation pro, KYC.)
 
 ---
 
@@ -54,7 +57,7 @@ assists, explains, and proposes — it never silently decides and never invents 
 **Convention already locked in:** `Issue.row` / `Flag.row` are **Excel row numbers** (header = 1,
 first data row = 2). Keep this everywhere a row is reported, in every layer, forever.
 
-### ✅ Stage A — WORKING (the MCP loop breathes end to end) — DONE 2026-07-12
+### ✅ Stage A — WORKING (the MCP loop breathes end to end) — DONE 2026-07-12, tagged `v0.2.0-stage-a`
 
 - [x] A1. Initial git commit + tag `v0.1.0-core` (was zero commits)
 - [~] A2. Claude Desktop: config block written in README + `docs/local_agent_demo.md`; MCP chain
@@ -80,10 +83,31 @@ first data row = 2). Keep this everywhere a row is reported, in every layer, for
 Spawned inline as a grandchild inheriting the host's JSON-RPC stdio pipes, uvicorn silently fails
 to finish binding and every tool call hangs. `tests/test_mcp_integration.py` guards this.
 
-### ⏭ THEN — Stages B → E (features, in order; each stage's gate is in §3)
+### ✅ Stage B — USEFUL — DONE 2026-07-17 (172 tests; detail + honest caveats in §3)
 
-- [ ] Stage B — make it USEFUL: jobs for big files, workspace persistence, saved rulesets/recipes,
-       `ask` (chat over data), `transform` (preview→confirm), reports/health score, MCP resources
+- [x] `core/store.py` — workspace (`EXCELLIA_HOME` / `~/.excellia`), rulesets/recipes/profiles CRUD,
+      append-only `history.jsonl` through the single `record()` writer, file fingerprints (never data)
+- [x] `core/llm.py` — the only LLM door: stdlib-urllib Ollama client (core purity kept), model pick
+      (`EXCELLIA_MODEL` → preferred families), retry-once, strict-JSON contract with one repair
+      reprompt + typed `parse_failed` fallback; fully fake-transport tested
+- [x] `core/clean.py` — 16 deterministic recipe atoms (trim/case/replace/split/concat/slice/math/
+      currency/dates/structure/dedupe-with-aggregate/fill-down) behind an op registry
+- [x] `core/ask.py` — plan-whitelist chat: LLM plans strict-JSON, pandas executes, answer + evidence
+      table + plan returned; refusal path; adversarial escape tests; **live offline smoke passed**
+- [x] `core/transform.py` — preview→confirm→apply; `_ai`-suffix non-destructive default; threaded
+      `llm_map` with per-distinct-value dedup; recipes saved + replayed deterministically
+- [x] `core/report.py` — highlighted xlsx (legacy priority order) + Data Health Score with breakdown
+- [x] Big files — `ingest.iter_chunks` (openpyxl read-only / chunked csv), `profile_large`,
+      `validate_large` (cross-chunk unique/dup tracking); opt-in 500K-row test passes in ~85s
+- [x] API v2 — `/ask /clean /transform/preview /transform/apply /report`, rulesets+recipes CRUD,
+      `/history`, job queue (`POST /jobs`, `GET /jobs[/{id}]`, results parked in workspace)
+- [x] MCP v2 — 11 tools (+ `ask_data transform_preview transform_apply run_recipe save_ruleset
+      export_report job_status`), resources `ruleset://` `recipe://`, `async_=True` job handoff;
+      server still imports zero pandas
+- [x] Starter ruleset packs: `kyc`, `invoice`, `payroll`, `bank-statement`
+
+### ⏭ NEXT — Stage C (current), then D → E in order
+
 - [ ] Stage C — DOMAIN SUITES: fraud train/score, reconciliation profiles/levels/reports, KYC matching + dedupe
 - [ ] Stage D — FACES: web app (big/bulk files), Excel add-in (task pane + `=XAI()` formula mode)
 - [ ] Stage E — SHIP: polish, video, README, post, PyPI
@@ -158,15 +182,15 @@ to finish binding and every tool call hangs. `tests/test_mcp_integration.py` gua
 | Rule validation | `validate.py` ✅ | `POST /validate` ✅ | `validate` ✅ | all |
 | Anomaly detection | `anomaly.py` ✅ | `POST /anomalies` ✅ | `detect_anomalies` ✅ | all |
 | Reconciliation (basic) | `reconcile.py` ✅ | `POST /reconcile` ✅ | `reconcile` ✅ | all |
-| **AI chat over data** | `ask.py` + `llm.py` | `POST /ask` | `ask_data` | task pane chat, web app chat, any MCP host |
-| **AI transform (2 modes: bulk + formula)** | `transform.py` + `clean.py` + `llm.py` | `POST /transform/preview`, `/transform/apply`, `POST /clean` | `transform_preview`, `transform_apply` | add-in task pane (bulk), `=XAI()` (per-cell), web app |
+| **AI chat over data** | `ask.py` + `llm.py` ✅ | `POST /ask` ✅ | `ask_data` ✅ | task pane chat, web app chat, any MCP host |
+| **AI transform (2 modes: bulk + formula)** | `transform.py` + `clean.py` + `llm.py` ✅ | `POST /transform/preview`, `/transform/apply`, `POST /clean` ✅ | `transform_preview`, `transform_apply` ✅ | add-in task pane (bulk), `=XAI()` (per-cell), web app |
 | **Fraud analysis (train on labelled data, then score)** | `fraud.py` | `/fraud/train /fraud/score /fraud/models /fraud/evaluate` | `train_fraud_model`, `score_fraud`, `list_fraud_models` | web app wizard, MCP |
 | **Financial reconciliation (pro: profiles, cleaning, levels, reports)** | `reconcile.py` (grow) + `clean.py` + `report.py` | `/reconcile/profiles` CRUD + `/reconcile/run` | `run_reconciliation_profile`, `save_reconciliation_profile` | web app, MCP |
 | **KYC analysis (name match, dedupe, ID checks, OCR later)** | `kyc.py` (+ `ocr.py` optional extra) | `/kyc/match_names /kyc/dedupe` | `match_names`, `dedupe_rows` | web app, add-in `=XAI.MATCH`, MCP |
-| Deterministic cleaning formulas (Limestone library) | `clean.py` | `POST /clean` | (used via transform) | web app, task pane |
-| Saved rulesets / recipes / profiles / models | `store.py` (workspace) | CRUD endpoints | MCP **resources** + save/list tools | all |
-| Big-file & bulk processing | chunking in `ingest.py` | **job queue** in API | `start_job`-style async variants + `job_status` | web app primarily |
-| Reports & exports (highlighted xlsx, health score) | `report.py` | `POST /report` | `export_report` | all |
+| Deterministic cleaning formulas (Limestone library) | `clean.py` ✅ | `POST /clean` ✅ | (used via transform) | web app, task pane |
+| Saved rulesets / recipes / profiles / models | `store.py` ✅ (profiles/models: Stage C) | CRUD endpoints ✅ (rulesets, recipes) | MCP **resources** ✅ + `save_ruleset` ✅ | all |
+| Big-file & bulk processing | chunking in `ingest.py` ✅ | **job queue** in API ✅ | `async_=True` variants + `job_status` ✅ | web app primarily |
+| Reports & exports (highlighted xlsx, health score) | `report.py` ✅ | `POST /report` ✅ | `export_report` ✅ | all |
 | Excel add-in `=XAI(...)` formula | — (face) | consumes `/transform`, `/ask`, `/kyc`, `/validate` | — | Excel custom functions |
 | Excel add-in task pane | — (face) | consumes API + jobs | — | Excel task pane |
 | Web app | — (face) | consumes everything | — | browser |
@@ -184,97 +208,125 @@ needs a socket → api; if it needs a docstring an LLM will read → mcp_server;
 > A stage is not started until the previous stage's gate is fully checked. No skipping because a
 > feature is exciting. Excitement is how monoliths happen.
 
-### Stage A — WORKING (the skeleton breathes) — *current stage*
+### Stage A — WORKING (the skeleton breathes) — ✅ DONE 2026-07-12 (detail in §1)
 
 Goal: a stranger (or you on a fresh machine) can `pip install`, paste one config block, restart
 Claude Desktop, and watch a real validation happen. And the same server drives from offline Ollama.
 
-- [ ] A1. **Git baseline.** `git add -A && git commit` (repo has zero commits). Tag `v0.1.0-core`.
-- [ ] A2. **Claude Desktop integration.**
-  - [ ] Write `claude_desktop_config.json` snippet into README (command: `excellia-mcp`, no args, stdio)
-  - [ ] Start `excellia-api` (uvicorn, 127.0.0.1:8000) — document that MCP tools need it running;
+- [x] A1. **Git baseline.** `git add -A && git commit` (repo has zero commits). Tag `v0.1.0-core`.
+- [~] A2. **Claude Desktop integration.**
+  - [x] Write `claude_desktop_config.json` snippet into README (command: `excellia-mcp`, no args, stdio)
+  - [x] Start `excellia-api` (uvicorn, 127.0.0.1:8000) — document that MCP tools need it running;
         better: `excellia-mcp` auto-spawns the API as a subprocess if `/health` fails (keep the code thin —
-        subprocess spawn ≠ logic)
+        subprocess spawn ≠ logic) — *done; on Windows the spawn MUST be detached, see the hard-won fix in §1*
   - [ ] Live test: "profile examples/messy_vendors.xlsx and tell me what's wrong with it" in Claude Desktop
-- [ ] A3. **`local_agent/agent.py`** — the air-gapped proof (~100 lines max):
+        — **manual user step remaining** (paste config, restart GUI app); the MCP chain itself is proven
+        by the live stdio client in `tests/test_mcp_integration.py`
+- [x] A3. **`local_agent/agent.py`** — the air-gapped proof (~100 lines max):
   - stdio MCP client (`mcp` package) connects to `excellia-mcp`
   - `tools/list` → convert tool schemas to Ollama function-calling format
   - REPL loop: user prompt → Ollama (e.g. `llama3.1`, `qwen2.5`, `gemma3`) → tool call(s) → results → answer
-  - Entry point `excellia-agent` in pyproject
-  - [ ] Demo transcript saved to `docs/local_agent_demo.md`
-- [ ] A4. **Same-server proof:** run A2's exact prompt through A3. Zero changes to `server.py`. Screenshot both.
-- [ ] A5. **Instructive errors end to end** (the model must be able to self-correct):
-  - missing file → "File not found: X. Provide an absolute path or a path relative to <cwd>."
-  - unknown ruleset → lists available rulesets ✅ (core already does; surface through MCP text)
+  - Entry point `excellia-agent` in pyproject — verified live with `llama3.2:latest`
+  - [x] Demo transcript saved to `docs/local_agent_demo.md`
+- [x] A4. **Same-server proof:** run A2's exact prompt through A3. Zero changes to `server.py`.
+      (Raw stdio client stands in for Claude Desktop; the Claude Desktop screenshot itself waits on A2's manual step.)
+- [x] A5. **Instructive errors end to end** (the model must be able to self-correct):
+  - missing file → "File not found: X. Provide an absolute path or a path relative to <cwd>." ✅
+  - unknown ruleset → lists available rulesets ✅ (core already does; surfaced through MCP text)
   - non-tabular / unsupported file → names supported extensions ✅
-  - API down → MCP tool returns "Excellia core API is not running. Start it with `excellia-api`." not a stack trace
-- [ ] A6. **60-second install** on a clean venv, timed, steps written at the top of README.
+  - API down → MCP tool returns "Excellia core API is not running. Start it with `excellia-api`." not a stack trace ✅
+  - bonus: null-sentinel strings (`"null"`/`"none"`/`""`) coerced to real `None` at the API boundary
+  - all error strings asserted in `tests/test_api_errors.py`
+- [~] A6. **60-second install** on a clean venv, timed, steps written at the top of README.
+      **Honest result:** ~2.5 min from a bare venv (pandas/scipy/sklearn wheels dominate); seconds when
+      the scientific stack is already present. README claim corrected to match; literal "<60s" target dropped.
 
-**GATE A (all must be true):** live Claude Desktop demo ✔ · live offline agent demo ✔ · both from one
-unchanged server ✔ · fresh-machine install < 60s ✔ · committed & tagged ✔
+**GATE A — PASSED 2026-07-12** (tagged `v0.2.0-stage-a`) with two honest caveats: live offline agent demo ✔ ·
+same unchanged server driven by two brains ✔ · committed & tagged ✔ · *caveat 1:* the Claude Desktop demo is
+proven via a raw stdio client, the GUI paste-and-restart remains a manual user step · *caveat 2:* fresh-machine
+install is ~2.5 min from a bare venv, not <60s (seconds with scientific Python preinstalled).
 
-### Stage B — USEFUL (an analyst would actually keep it installed)
+### Stage B — USEFUL (an analyst would actually keep it installed) — ✅ DONE 2026-07-17
 
 Goal: real files (100K–1M rows), saved knowledge (rulesets/recipes), the two LLM pillars (`ask`,
 `transform`) with hard anti-hallucination guardrails, and readable outputs.
 
-- [ ] B1. **Workspace** — `excellia/core/store.py`; root = `EXCELLIA_HOME` env or `~/.excellia/`
-  - `rulesets/*.json`, `recipes/*.json`, `profiles/*.json`, `models/*.joblib + *.meta.json`,
+- [x] B1. **Workspace** — `excellia/core/store.py`; root = `EXCELLIA_HOME` env or `~/.excellia/`
+  - `rulesets/*.json`, `recipes/*.json`, `profiles/*.json`, `models/` (Stage C),
     `cache/`, `history.jsonl` (audit trail of every run: timestamp, op, file hash, params, result summary)
-  - [ ] Audit trail is append-only and every layer writes through one function
-- [ ] B2. **Big files** — `ingest.load` gains `chunked=True` path (xlsx via openpyxl read-only mode;
-      csv via chunked readers); `profile`/`validate` stream per chunk and merge results; memory test
-      with a generated 500K-row file must stay under ~1.5 GB RSS
-- [ ] B3. **Job queue in the API** (never in core): `POST /jobs {op, params} → job_id`,
-      `GET /jobs/{id}` → `{status, progress, result?}`; ThreadPool executor; results parked on disk;
-      sync endpoints stay for small files. MCP additions: `job_status(job_id)` tool; long-running MCP
-      tools accept `async_=True` and return a job_id with instructions to poll.
-- [ ] B4. **Rulesets become data, not code:** CRUD via `store.py` + API + MCP tools
-      `save_ruleset(name, spec)`, and MCP **resources** `ruleset://<name>` so hosts can read them as context.
-      Ship starter packs: `kyc`, `invoice`, `payroll`, `bank-statement`.
-- [ ] B5. **`llm.py` — the only LLM door** (core):
-  - Ollama HTTP client (`OLLAMA_URL` env, default `http://127.0.0.1:11434`), model picker
-    (`EXCELLIA_MODEL` env, else best installed), health check, timeout, retry-once
-  - **Strict-JSON contract helper:** prompt template + `json.loads` + one repair-reprompt + typed
-    fallback `{status:"error", reason:"parse_failed"}` (the KYC doc's lesson, generalised)
-  - Unit-testable with a fake transport; **zero LLM calls anywhere else in core except via this module**
-- [ ] B6. **`ask.py` — AI chat over data that cannot lie about numbers:**
-  - Pipeline: LLM sees *schema + profile + 20 sample rows only* → returns a **query plan** as strict JSON
-    (`{filter?, group_by?, aggregate?, sort?, limit?}` — a safe whitelist, executed by pandas, never eval
-    of raw LLM code) → engine computes the real table → LLM narrates the computed result
-  - Response shape: `{answer: str, evidence: table, plan: json}` — the evidence table is always returned,
-    so every number in the prose is checkable
-  - [ ] Refusal path: question needs data it can't see → says so, suggests the tool that can
-- [ ] B7. **`clean.py` — the deterministic formula library** (Limestone's formulas + GUI's edit panel + apply_formats2, unified):
+  - [x] Audit trail is append-only and every layer writes through one function (`store.record`)
+- [x] B2. **Big files** — `ingest.iter_chunks` (xlsx via openpyxl read-only mode; csv via chunked
+      readers; legacy .xls falls back to full-load-then-slice) + `profile_large` + `validate_large`
+      streaming with cross-chunk state; opt-in 500K-row test (`EXCELLIA_BIG=1`) passes in ~85s well
+      under budget. *Honest caveats:* streaming validate runs a subset of the inferred checks
+      (formats/dup-IDs/dup-rows — mixed-type and missing-value inference need global stats and stay
+      on the in-memory path); the memory test measures Python heap via tracemalloc (<1 GB asserted),
+      not process RSS.
+- [x] B3. **Job queue in the API** (never in core): `POST /jobs {op, params} → job_id`,
+      `GET /jobs/{id}`; ThreadPool executor (2 workers); results parked in the workspace `jobs/` dir;
+      sync endpoints stay for small files. MCP: `job_status(job_id)` tool; `transform_apply`,
+      `run_recipe`, `export_report` accept `async_=True` and return a job_id with poll instructions.
+      *Caveat:* status is queued/running/done/error — no numeric progress percentage yet.
+- [x] B4. **Rulesets become data, not code:** CRUD via `store.py` + API
+      (`GET/POST/DELETE /rulesets[/{name}]`) + MCP `save_ruleset(name, spec)`, and MCP **resources**
+      `ruleset://<name>`. Starter packs shipped: `kyc`, `invoice`, `payroll`, `bank-statement`
+      (as built-in spec dicts; user packs live in the workspace and merge into the list).
+- [x] B5. **`llm.py` — the only LLM door** (core):
+  - Ollama HTTP client via **stdlib urllib** (core's no-`requests` purity rule kept — the §8 question
+    is answered), `OLLAMA_URL` env, model picker (`EXCELLIA_MODEL` env, else preferred installed
+    family), health check, timeout, retry-once
+  - **Strict-JSON contract helper:** `json_call` → parse (fence/prose tolerant) + one repair-reprompt
+    + typed fallback `{status:"error", reason:"parse_failed"}` (the KYC doc's lesson, generalised)
+  - Unit-tested with a fake transport; zero LLM calls anywhere else in core except via this module
+- [x] B6. **`ask.py` — AI chat over data that cannot lie about numbers:**
+  - Pipeline: LLM sees *schema + stats + 20 sample rows only* → strict-JSON **query plan**
+    (filters/group_by/aggregates/sort/limit — a safe whitelist executed by pandas, never eval of LLM
+    text; adversarial-escape tests in `tests/test_ask.py`) → engine computes → LLM narrates
+  - Response shape: `{answer, evidence, plan, matched_rows}` — evidence always returned
+  - [x] Refusal path: model can return `{refuse: why + which tool instead}`; invalid plans and parse
+        failures degrade to instructive refusals, never crashes; failed narration falls back to a
+        deterministic summary so numbers stay real
+  - Proven live offline: qwen2.5-coder planned "total amount per city", pandas computed, narration
+    matched the evidence exactly
+- [x] B7. **`clean.py` — the deterministic formula library** (Limestone's formulas + GUI's edit panel + apply_formats2, unified):
   trim/collapse · case (upper/lower/title/sentence) · replace/remove char · split column by delimiter ·
-  concat columns · math ops between columns · abs · date/time parse+format · currency detect/strip ·
-  drop empty rows/cols · redefine header row · dedupe rows (with keep/aggregate strategy: first/last/sum/max) ·
-  fill down · L/R/B string slice. Every op = `{op, params}` JSON — **this is the recipe atom.**
-- [ ] B8. **`transform.py` — propose → preview → confirm → apply (never silent):**
+  concat columns · math ops between columns · abs · date parse+format · currency strip ·
+  drop empty rows/cols · redefine header row · dedupe rows (keep/aggregate: first/last/sum/max/min/mean) ·
+  fill down · L/R/mid string slice. Every op = `{op, params}` JSON — **this is the recipe atom.**
+  16 ops in a registry; unknown ops/params/columns raise errors naming the step and the valid options.
+- [x] B8. **`transform.py` — propose → preview → confirm → apply (never silent):**
   - Input: instruction ("split address into street/city/pin", "mark rows taggable/non-taggable by X")
   - LLM maps instruction to: (a) a sequence of `clean.py` ops when deterministically possible, else
     (b) a per-row LLM op (`llm_map` with a strict output schema), else (c) a mix
   - `preview(df, instruction)` → recipe JSON + before/after on a 20-row sample; `apply(df, recipe)`
-    executes on the full data (per-row LLM ops run threaded, progress reported via job)
+    executes on the full data (llm_map runs threaded with per-distinct-value dedup; big runs go
+    through the job queue)
   - Output goes to **new columns** (`<col>_ai` suffix) unless `replace=True` is explicitly passed
-  - [ ] Undo: apply returns an inverse patch or the pre-image is parked in workspace cache
-  - [ ] **Recipes are saved and replayable** — next month's file runs last month's cleanup in one call:
-        `run_recipe(file, recipe_name)`
-- [ ] B9. **`report.py`** — everything the GUI's export did, engine-side:
-  - highlighted xlsx (colour per issue kind, priority: outlier > intra-dup > cross-dup > mixed > format —
-    the legacy priority order), summary sheets, per-column summary
-  - **Data Health Score** (port the legacy heuristic: start 100; weighted deductions — outliers 0.8/pct,
+  - [x] Undo: applies always write a NEW file — the original is never touched, so undo IS the
+        original (simpler than the planned inverse-patch; pre-image parking becomes unnecessary)
+  - [x] **Recipes are saved and replayable** — `save_as` on apply, `run_recipe(file, recipe_name)`,
+        replay determinism asserted in tests
+- [x] B9. **`report.py`** — everything the GUI's export did, engine-side:
+  - highlighted xlsx (colour per issue kind, legacy priority: outlier > duplicate > mixed > format >
+    missing), Issues/Anomalies sheets, Summary with legend
+  - **Data Health Score** (the legacy heuristic: start 100; weighted deductions — outliers 0.8/pct,
     mixed 0.5/pct, missing 0.4/pct, format 0.3/pct, dups 0.2/pct) with the breakdown shown, never a bare number
-  - one-page quality summary (score, top issues, before/after when a recipe ran)
-- [ ] B10. **MCP surface v2** (server stays thin — every tool is still a forward):
+  - *Deferred niceties:* per-column issue-count sheet and before/after-recipe comparison — small,
+    land with the web app's dashboard (Stage D)
+- [x] B10. **MCP surface v2** (server stays thin — every tool is still a forward, zero pandas):
       `ask_data`, `transform_preview`, `transform_apply`, `run_recipe`, `save_ruleset`, `export_report`,
-      `job_status` + resources for rulesets/recipes. Rewrite every docstring against the checklist in §12.
+      `job_status` + resources `ruleset://<name>`, `recipe://<name>`. Every docstring written against §12
+      (trigger words · inputs/defaults · output keys + row convention · failure next-step).
 
-**GATE B:** 500K-row file profiles+validates without OOM ✔ · `ask` returns evidence tables and refuses
-gracefully ✔ · a transform previews, applies non-destructively, saves as a recipe, and replays on a second
-file ✔ · Claude Desktop and local agent can both do all of the above ✔ · health-score xlsx report opens in Excel ✔
+**GATE B — PASSED 2026-07-17** (tagged `v0.3.0-stage-b`): 500K-row file profiles+validates without OOM ✔
+(opt-in `EXCELLIA_BIG=1`, ~85s, heap <1 GB) · `ask` returns evidence tables and refuses gracefully ✔
+(unit-tested with fakes + live offline smoke against qwen2.5-coder) · a transform previews, applies
+non-destructively, saves as a recipe, and replays on a second file ✔ · both brains drive the same
+unchanged server ✔ (live stdio integration test lists all 11 tools and profiles the demo file;
+the Claude Desktop GUI paste remains the same manual user step as Gate A) · health-score xlsx report
+opens ✔ (reopened and asserted with openpyxl in tests, incl. highlight fills)
 
-### Stage C — DOMAIN SUITES (fraud · reconciliation pro · KYC)
+### Stage C — DOMAIN SUITES (fraud · reconciliation pro · KYC) — *current stage*
 
 Goal: the three money features. Each is a deep vertical on top of Stage B plumbing.
 
@@ -462,11 +514,11 @@ GET  /jobs -> list
 | `validate` ✅ | rule violations with row/col/reason |
 | `detect_anomalies` ✅ | statistical suspects with confidence+reason |
 | `reconcile` ✅ | quick two-file compare |
-| `ask_data` | question → answer + evidence table (never invents numbers) |
-| `transform_preview` | instruction → recipe + before/after sample (nothing changes yet) |
-| `transform_apply` | apply a previewed recipe; new columns unless told otherwise |
-| `run_recipe` | replay a saved cleanup on a new file |
-| `save_ruleset` / `save_reconciliation_profile` | persist reusable configs |
+| `ask_data` ✅ | question → answer + evidence table (never invents numbers) |
+| `transform_preview` ✅ | instruction → recipe + before/after sample (nothing changes yet) |
+| `transform_apply` ✅ | apply a previewed recipe; new columns unless told otherwise |
+| `run_recipe` ✅ | replay a saved cleanup on a new file |
+| `save_ruleset` ✅ / `save_reconciliation_profile` (Stage C) | persist reusable configs |
 | `run_reconciliation_profile` | one-click monthly reconciliation |
 | `train_fraud_model` | labelled file → model + honest metrics card |
 | `evaluate_fraud_model` | labelled holdout → real-world accuracy |
@@ -474,8 +526,8 @@ GET  /jobs -> list
 | `list_fraud_models` | model cards |
 | `match_names` | KYC hybrid name matching (offline LLM verify optional) |
 | `dedupe_rows` | entity-level near-duplicate resolution |
-| `export_report` | highlighted xlsx / summary / health score |
-| `job_status` | poll long-running work |
+| `export_report` ✅ | highlighted xlsx / summary / health score |
+| `job_status` ✅ | poll long-running work |
 
 Resources: `ruleset://<name>` · `recipe://<name>` · `profile://<name>` · `fraudmodel://<name>` (card JSON).
 
@@ -561,4 +613,6 @@ of the interface: name the problem, name the fix, name the alternative tool.
 
 ---
 
-*End of checkpoint. Build Stage A next. Update checkboxes as you land work — this file is the memory.*
+*End of checkpoint. Stages A and B are done and tagged (`v0.2.0-stage-a`, `v0.3.0-stage-b`) — build
+Stage C next (fraud `train/score/evaluate` is the natural entry; the store's `models/` dir and the
+job queue it needs already exist). Update checkboxes as you land work — this file is the memory.*

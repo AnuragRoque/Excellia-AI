@@ -38,7 +38,10 @@ def test_stdio_server_autostarts_api_and_profiles():
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 names = {t.name for t in (await session.list_tools()).tools}
-                assert names == {"profile_sheet", "validate", "detect_anomalies", "reconcile"}
+                assert names >= {"profile_sheet", "validate", "detect_anomalies",
+                                 "reconcile", "ask_data", "transform_preview",
+                                 "transform_apply", "run_recipe", "save_ruleset",
+                                 "export_report", "job_status"}
                 result = await session.call_tool(
                     "profile_sheet", {"file_path": "examples/messy_vendors.xlsx"}
                 )

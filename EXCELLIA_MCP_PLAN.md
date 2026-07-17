@@ -3,7 +3,8 @@
 **Goal:** Refactor Excellia from a monolithic GUI application into a clean core engine exposed as an MCP server, so any AI agent — cloud or fully air-gapped — can drive spreadsheet validation without data leaving the machine.
 
 **Owner:** Anurag
-**Status:** Phase 1 complete → Phase 2 (= Stage A in the master spec)
+**Status:** Phases 1 & 2 complete (= Stage A in the master spec, done 2026-07-12, tagged `v0.2.0-stage-a`);
+Phase 3 partially done (packaging/demo/README shipped; recordings + post pending — folded into Stage E)
 **Target:** 3 focused weekends to public release of the v1 server
 
 > **Master spec:** the complete product — full feature set (fraud analysis, KYC, reconciliation pro,
@@ -352,23 +353,28 @@ Findings can themselves be sensitive. So: Claude Desktop is right for **demos an
 - [x] Write tests against `examples/messy_vendors.xlsx` (60 tests passing; file regenerable via `examples/make_messy_vendors.py`)
 - [x] **Nothing user-facing changes yet.** The logic is now free.
 
-### Phase 2 — API + MCP server + local agent (weekend 2)
+### Phase 2 — API + MCP server + local agent (weekend 2) — ✅ DONE 2026-07-12 (= Stage A)
 
-- [ ] `api/main.py` — FastAPI, five endpoints, each calling one core function
-- [ ] Point the existing Excellia GUI at the API. Prove nothing broke.
-- [ ] `mcp_server/server.py` — four tools, under 60 lines
-- [ ] Add to Claude Desktop config, restart, **watch it work**
-- [ ] `local_agent/agent.py` — Ollama + mcp client, fully offline
-- [ ] Verify: same server, both brains, zero code changes between them
+- [x] `api/main.py` — FastAPI, six endpoints (`/health /profile /validate /anomalies /reconcile /rulesets`), each calling one core function
+- [ ] Point the existing Excellia GUI at the API. Prove nothing broke. — *skipped deliberately: legacy GUI
+      stays read-only reference; superseded by the Stage D web app in the master spec*
+- [x] `mcp_server/server.py` — four tools, still thin (zero pandas); grew past 60 lines only for the
+      Windows detached-API-spawn fix and instructive error text, not logic
+- [~] Add to Claude Desktop config, restart, **watch it work** — config block written into README; chain
+      proven via live stdio client (`tests/test_mcp_integration.py`); the GUI paste+restart is a manual user step
+- [x] `local_agent/agent.py` — Ollama + mcp client, fully offline (verified live with `llama3.2:latest`)
+- [x] Verify: same server, both brains, zero code changes between them (transcript in `docs/local_agent_demo.md`)
 
-### Phase 3 — Ship it (weekend 3)
+### Phase 3 — Ship it (weekend 3) — partially done; remainder folded into Stage E of the master spec
 
-- [ ] `pyproject.toml` → `pip install excellia`, entry point `excellia-mcp`
-- [ ] **Installs in under 60 seconds.** `pip install`, paste config block, restart. Any friction and nobody tries it.
-- [ ] `examples/messy_vendors.xlsx` — a demo file with deliberate GST errors, duplicates, and outliers
-- [ ] README with the thesis line as the first sentence
-- [ ] **90-second screen recording**: Claude Desktop validating the messy spreadsheet and explaining what's wrong. Not a diagram. A screen recording. Highest-leverage artifact; takes an afternoon.
-- [ ] One post: *"Why enterprise AI logic should be an MCP server, not an app"* — written as an architect who learned it across five platforms, not a student who read the spec.
+- [x] `pyproject.toml` → `pip install excellia`, entry point `excellia-mcp` (+ `excellia-api`, `excellia-agent`)
+- [~] **Installs in under 60 seconds.** `pip install`, paste config block, restart. — *honest result: ~2.5 min
+      from a bare venv (scientific-stack wheels dominate); seconds when pandas/sklearn already installed.
+      README states the truthful timing.*
+- [x] `examples/messy_vendors.xlsx` — a demo file with deliberate GST errors, duplicates, and outliers (+ regenerator script)
+- [x] README with the thesis line as the first sentence
+- [ ] **90-second screen recording**: Claude Desktop validating the messy spreadsheet and explaining what's wrong. Not a diagram. A screen recording. Highest-leverage artifact; takes an afternoon. *(→ Stage E)*
+- [ ] One post: *"Why enterprise AI logic should be an MCP server, not an app"* — written as an architect who learned it across five platforms, not a student who read the spec. *(→ Stage E)*
 
 ### Later (do not build now)
 

@@ -39,12 +39,45 @@ RULESETS: dict[str, dict] = {
             {"name": "amount_positive", "expr": "amount > 0", "severity": "error"},
         ],
     },
+    "payroll": {
+        "formats": {"pan": "pan", "email": "email", "phone": "phone", "ifsc": "ifsc"},
+        "unique": ["employee_id", "pan"],
+        "expressions": [
+            {"name": "net_not_above_gross", "expr": "net_pay <= gross_pay",
+             "severity": "error"},
+        ],
+    },
+    "bank-statement": {
+        "formats": {"ifsc": "ifsc"},
+        "expressions": [
+            {"name": "amount_nonzero", "expr": "amount != 0", "severity": "warning"},
+        ],
+    },
 }
 
 
 def list_rulesets() -> list[str]:
-    """Names of saved, reusable rulesets."""
-    return sorted(RULESETS)
+    """Built-in ruleset names plus any saved in the workspace."""
+    from excellia.core import store
+
+    return sorted(set(RULESETS) | set(store.list_names("rulesets")))
+
+
+def resolve_ruleset(ruleset: str | dict) -> dict:
+    """A ruleset spec from a name (built-in, then workspace) or a literal dict."""
+    if isinstance(ruleset, dict):
+        return ruleset
+    if ruleset in RULESETS:
+        return RULESETS[ruleset]
+    from excellia.core import store
+
+    try:
+        return store.load("rulesets", ruleset)
+    except store.StoreError:
+        raise ValueError(
+            f"Unknown ruleset '{ruleset}'. Available: {', '.join(list_rulesets())}. "
+            "Save a custom one with save_ruleset / POST /rulesets/<name>."
+        )
 
 
 def _excel_row(df: pd.DataFrame, idx_label) -> int:
@@ -189,22 +222,119 @@ def _auto_checks(df: pd.DataFrame) -> list[Issue]:
     return issues
 
 
-def validate(df: pd.DataFrame, ruleset: str = "default") -> list[Issue]:
-    """Check a DataFrame against a named ruleset.
+def validate(df: pd.DataFrame, ruleset: str | dict = "default") -> list[Issue]:
+    """Check a DataFrame against a ruleset (a name or a literal spec dict).
 
     Runs the ruleset's explicit rules plus (unless the ruleset sets
     ``auto: False``) inferred checks: missing values, dominant-format
     violations, duplicate rows/IDs, and mixed types. Every Issue
     carries row, column, rule_name, severity, and a reason.
     """
-    if ruleset not in RULESETS:
-        raise ValueError(
-            f"Unknown ruleset '{ruleset}'. Available: {', '.join(list_rulesets())}")
-    spec = RULESETS[ruleset]
+    spec = resolve_ruleset(ruleset)
 
     issues = _explicit_checks(df, spec)
     if spec.get("auto", True):
         issues.extend(_auto_checks(df))
+
+    issues.sort(key=lambda i: (i.row, i.column))
+    return issues
+
+
+# --- big files: streaming validation ---------------------------------
+
+def validate_large(
+    file_path: str,
+    ruleset: str | dict = "default",
+    sheet: str | None = None,
+    chunk_size: int | None = None,
+) -> list[Issue]:
+    """Streaming ``validate`` for files too big to hold in memory.
+
+    Full fidelity for the explicit rules (uniqueness tracked across
+    chunks). The inferred checks run a streaming subset: dominant-format
+    violations (format decided from each column's first well-populated
+    chunk), duplicate IDs, and exact duplicate rows — cross-chunk, via
+    value/row maps. Mixed-type and missing-value inference need global
+    statistics, so they only run on the in-memory path.
+    """
+    from excellia.core import ingest
+
+    spec = resolve_ruleset(ruleset)
+    chunk_size = chunk_size or ingest.DEFAULT_CHUNK_SIZE
+    per_chunk_spec = {k: v for k, v in spec.items() if k != "unique"}
+
+    issues: list[Issue] = []
+    # value -> first Excel row; None once the duplicate was already reported
+    seen_unique: dict[str, dict[str, int | None]] = {c: {} for c in spec.get("unique", [])}
+    seen_ids: dict[str, dict[str, int | None]] = {}
+    seen_rows: dict[int, int | None] = {}
+    fmt_decisions: dict[str, str | None] = {}  # column -> dominant format (None = no dominant)
+    offset = 0  # rows before the current chunk
+
+    def _dup_check(book: dict[str, int | None], value: str, row: int, col: str,
+                   rule: str, severity: str, reason: str) -> None:
+        first = book.get(value, -1)
+        if first == -1:
+            book[value] = row
+            return
+        if first is not None:  # second sighting — report the first row too
+            issues.append(Issue(first, col, rule, severity, reason, value))
+            book[value] = None
+        issues.append(Issue(row, col, rule, severity, reason, value))
+
+    for chunk in ingest.iter_chunks(file_path, sheet=sheet, chunk_size=chunk_size):
+        chunk = chunk.reset_index(drop=True)
+        for issue in _explicit_checks(chunk, per_chunk_spec):
+            issue.row += offset
+            issues.append(issue)
+
+        for col in spec.get("unique", []):
+            if col not in chunk.columns:
+                continue
+            for idx, val in nonempty(chunk[col]).astype(str).str.strip().items():
+                _dup_check(seen_unique[col], val, idx + offset + 2, col, "unique",
+                           "error", f"Duplicate value in column '{col}' that must be unique")
+
+        if spec.get("auto", True):
+            for col in chunk.columns:
+                stripped = nonempty(chunk[col]).astype(str).str.strip()
+                if col not in fmt_decisions:
+                    if len(stripped) < 20:
+                        continue  # wait for a better-populated chunk
+                    fmt_decisions[col] = next(
+                        (f for f, p in FORMATS.items()
+                         if stripped.apply(lambda v: bool(p.fullmatch(v))).mean() >= 0.8),
+                        None,
+                    )
+                fmt = fmt_decisions[col]
+                if fmt is None:
+                    continue
+                pattern = FORMATS[fmt]
+                match_mask = stripped.apply(lambda v: bool(pattern.fullmatch(v)))
+                for idx, val in stripped[~match_mask].items():
+                    issues.append(Issue(
+                        idx + offset + 2, col, f"format_{fmt}", "error",
+                        f"Column '{col}' is mostly {fmt.upper()} values but this one is not",
+                        val))
+                if fmt in ("gst", "pan", "aadhaar", "ifsc"):
+                    book = seen_ids.setdefault(col, {})
+                    for idx, val in stripped[match_mask].items():
+                        _dup_check(book, val, idx + offset + 2, col, "duplicate_id",
+                                   "warning", f"{fmt.upper()} value appears more than once")
+
+            for idx, row_hash in enumerate(pd.util.hash_pandas_object(chunk, index=False)):
+                first = seen_rows.get(row_hash, -1)
+                if first == -1:
+                    seen_rows[row_hash] = idx + offset + 2
+                    continue
+                if first is not None:
+                    issues.append(Issue(first, "*", "duplicate_row", "warning",
+                                        "Entire row is an exact duplicate of another row"))
+                    seen_rows[row_hash] = None
+                issues.append(Issue(idx + offset + 2, "*", "duplicate_row", "warning",
+                                    "Entire row is an exact duplicate of another row"))
+
+        offset += len(chunk)
 
     issues.sort(key=lambda i: (i.row, i.column))
     return issues

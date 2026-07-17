@@ -43,16 +43,29 @@ excellia-agent check C:\data\vendors.xlsx     # one-shot
 
 Same MCP server, zero code changes between the two brains. That is the point.
 
-## Four tools
+**Every way to run it** — Claude Desktop, Claude Code, offline agent, raw HTTP API, other MCP
+hosts — with exact commands and troubleshooting: [docs/RUNNING.md](docs/RUNNING.md).
+
+## Eleven tools
 
 | Tool | What it does |
 |---|---|
 | `profile_sheet` | Row/column counts, inferred types, null rates, stats, auto-detected formats |
-| `validate` | Deterministic rule checks: required fields, GST/PAN/Aadhaar/email/phone/IFSC formats, ranges, duplicates, mixed types |
+| `validate` | Deterministic rule checks: required fields, GST/PAN/Aadhaar/email/phone/IFSC formats, ranges, duplicates, mixed types. Rulesets: `default`, `kyc`, `invoice`, `payroll`, `bank-statement`, plus your own saved ones |
 | `detect_anomalies` | Isolation Forest + column outliers + rare categories + near-duplicates + pattern breaks — every flag has a confidence and a reason |
 | `reconcile` | Match two spreadsheets by key columns; tolerances for amounts, date windows, fuzzy names; four buckets incl. field-level discrepancies |
+| `ask_data` | Chat with your data, hallucination-proof: the LLM plans a query, pandas computes it, and the evidence table always comes back with the answer |
+| `transform_preview` | Instruction → cleaning recipe + before/after on a 20-row sample. Nothing changes yet |
+| `transform_apply` | Apply a recipe to a NEW file (originals are never touched); new values land in `_ai`-suffixed columns unless you say replace |
+| `run_recipe` | Replay a saved cleanup on next month's file in one call |
+| `save_ruleset` | Persist a custom validation ruleset (also readable as the `ruleset://` MCP resource) |
+| `export_report` | Highlighted xlsx report + Data Health Score with its full deduction breakdown |
+| `job_status` | Poll long-running work started with `async_=true` (big files run on a job queue) |
 
-Row numbers everywhere are Excel rows: header is row 1, data starts at row 2.
+`ask_data` and the transform tools need a local [Ollama](https://ollama.com); everything else is
+pure deterministic code. Row numbers everywhere are Excel rows: header is row 1, data starts at row 2.
+Big files stream in chunks (a 500K-row file profiles and validates comfortably). Saved rulesets,
+recipes, and the append-only audit trail live in `~/.excellia/` (override with `EXCELLIA_HOME`).
 
 ## Architecture
 
@@ -78,9 +91,9 @@ Using Claude Desktop: the .xlsx file, every row, all pandas/ML processing stay l
 
 ```bash
 pip install -e .[dev]
-pytest          # 70 tests
+pytest          # 172 tests (+2 opt-in: live MCP integration, 500K-row memory budget)
 ```
 
 ## Status
 
-Stage A (working MCP loop) — see [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.
+Stages A (working MCP loop, `v0.2.0-stage-a`) and B (useful: ask/transform/recipes/reports/jobs/big files, `v0.3.0-stage-b`) are **done**. Next up is Stage C — the domain suites: fraud train/score, reconciliation profiles, KYC matching. See [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.

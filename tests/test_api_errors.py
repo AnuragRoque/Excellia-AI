@@ -71,13 +71,23 @@ def test_string_null_ruleset_falls_back_to_default():
 
 # --- MCP server (no live API needed) -----------------------------------
 
-def test_mcp_registers_all_four_tools():
+def test_mcp_registers_the_v2_surface():
     tools = asyncio.run(mcp_server.mcp.list_tools())
     assert {t.name for t in tools} == {
+        # Stage A pillars
         "profile_sheet", "validate", "detect_anomalies", "reconcile",
+        # Stage B surface
+        "ask_data", "transform_preview", "transform_apply", "run_recipe",
+        "save_ruleset", "export_report", "job_status",
     }
     for t in tools:
         assert len(t.description) > 80, f"{t.name} docstring too thin to guide a model"
+
+
+def test_mcp_registers_resources():
+    templates = asyncio.run(mcp_server.mcp.list_resource_templates())
+    uris = {t.uriTemplate for t in templates}
+    assert {"ruleset://{name}", "recipe://{name}"} <= uris
 
 
 def test_mcp_reports_api_down_instructively(monkeypatch):
@@ -95,6 +105,6 @@ def test_mcp_forwards_http_error_detail(monkeypatch):
             return {"detail": "File not found: x.xlsx. Provide an absolute path."}
 
     monkeypatch.setattr(mcp_server, "_ensure_api", lambda: None)
-    monkeypatch.setattr(mcp_server.requests, "post", lambda *a, **k: FakeResp())
+    monkeypatch.setattr(mcp_server.requests, "request", lambda *a, **k: FakeResp())
     out = mcp_server._post("/profile", {"file": "x.xlsx"})
     assert "Provide an absolute path" in out["error"]

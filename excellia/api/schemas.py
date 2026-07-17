@@ -55,3 +55,69 @@ class ReconcileRequest(BaseModel):
     b: str
     keys: list[str]
     tolerance: dict | None = None
+
+
+class AskRequest(_SheetMixin):
+    file: str
+    question: str
+
+
+class CleanRequest(_SheetMixin):
+    file: str
+    steps: list[dict]
+    out_path: str | None = None
+
+    @field_validator("out_path", mode="before")
+    @classmethod
+    def _clean_out(cls, v: object) -> object:
+        return _normalise_optional(v) if isinstance(v, str) else v
+
+
+class TransformPreviewRequest(_SheetMixin):
+    file: str
+    instruction: str
+
+
+class TransformApplyRequest(_SheetMixin):
+    file: str
+    recipe: dict | None = None
+    recipe_name: str | None = None
+    instruction: str | None = None
+    replace: bool = False
+    out_path: str | None = None
+    save_as: str | None = None  # also save the recipe under this name
+
+    @field_validator("recipe_name", "instruction", "out_path", "save_as", mode="before")
+    @classmethod
+    def _clean_optionals(cls, v: object) -> object:
+        return _normalise_optional(v) if isinstance(v, str) else v
+
+
+class ReportRequest(_SheetMixin):
+    file: str
+    ruleset: str = "default"
+    sensitivity: float = Field(default=0.05, gt=0, lt=0.5)
+    out_path: str | None = None
+
+    @field_validator("out_path", mode="before")
+    @classmethod
+    def _clean_out(cls, v: object) -> object:
+        return _normalise_optional(v) if isinstance(v, str) else v
+
+    @field_validator("ruleset", mode="before")
+    @classmethod
+    def _default_ruleset(cls, v: object) -> object:
+        if isinstance(v, str) and v.strip().lower() in _NULL_SENTINELS:
+            return "default"
+        return v
+
+
+class SpecBody(BaseModel):
+    """Body for saving a ruleset or recipe: the JSON spec itself."""
+
+    spec: dict
+
+
+class JobRequest(BaseModel):
+    op: str
+    params: dict = Field(default_factory=dict)

@@ -90,12 +90,12 @@ def _ensure_api() -> str | None:
     )
 
 
-def _post(path: str, payload: dict) -> dict:
+def _forward(method: str, path: str, payload: dict | None = None) -> dict:
     """Forward to the API; turn HTTP errors into {'error': instructive text}."""
     err = _ensure_api()
     if err:
         return {"error": err}
-    resp = requests.post(f"{API}{path}", json=payload, timeout=600)
+    resp = requests.request(method, f"{API}{path}", json=payload, timeout=600)
     try:
         body = resp.json()
     except ValueError:
@@ -103,6 +103,19 @@ def _post(path: str, payload: dict) -> dict:
     if resp.status_code >= 400:
         return {"error": body.get("detail", str(body))}
     return body
+
+
+def _post(path: str, payload: dict) -> dict:
+    return _forward("POST", path, payload)
+
+
+def _maybe_job(op: str, params: dict, async_: bool) -> dict:
+    """Run an op sync, or queue it and return a job_id when async_ is true."""
+    if async_:
+        return _post("/jobs", {"op": op, "params": params})
+    paths = {"transform_apply": "/transform/apply", "report": "/report",
+             "clean": "/clean"}
+    return _post(paths.get(op, f"/{op}"), params)
 
 
 @mcp.tool()
@@ -152,6 +165,112 @@ def reconcile(
     near-equal text (0-1 similarity). If a key column is missing, the error lists
     each file's actual columns — pick the right one and retry."""
     return _post("/reconcile", {"a": file_a, "b": file_b, "keys": key_columns, "tolerance": tolerance})
+
+
+@mcp.tool()
+def ask_data(file_path: str, question: str, sheet: str | None = None) -> dict:
+    """Ask a natural-language question about a spreadsheet's contents ("total amount
+    by vendor", "how many rows have a missing email"). A local LLM plans a query,
+    deterministic pandas computes it, and every number in the answer comes from the
+    returned evidence table — check it. Needs Ollama running locally; if it isn't,
+    the error says how to start it. For rule violations use `validate`; for outliers
+    use `detect_anomalies`."""
+    return _post("/ask", {"file": file_path, "question": question, "sheet": sheet})
+
+
+@mcp.tool()
+def transform_preview(file_path: str, instruction: str, sheet: str | None = None) -> dict:
+    """Turn a cleaning/transformation instruction ("split address into street, city,
+    pin", "uppercase vendor names", "tag rows as corporate or individual") into a
+    recipe and show before/after on a 20-row sample. NOTHING is changed yet — review
+    the sample, then pass the returned recipe to `transform_apply`. Needs Ollama
+    running locally. Deterministic ops are preferred; llm_map steps only where
+    meaning is required."""
+    return _post("/transform/preview", {"file": file_path, "instruction": instruction,
+                                        "sheet": sheet})
+
+
+@mcp.tool()
+def transform_apply(
+    file_path: str,
+    recipe: dict | None = None,
+    instruction: str | None = None,
+    recipe_name: str | None = None,
+    replace: bool = False,
+    save_as: str | None = None,
+    out_path: str | None = None,
+    async_: bool = False,
+) -> dict:
+    """Apply a transformation and write the result to a NEW file (the input is never
+    modified — undo is the original file). Pass exactly one of: `recipe` (from
+    transform_preview — the confirmed path), `recipe_name` (a saved recipe), or
+    `instruction` (one-shot). Changed values go to new `_ai`-suffixed columns unless
+    replace=true. `save_as` also saves the recipe for replay via `run_recipe`.
+    For big files pass async_=true and poll `job_status`."""
+    params = {"file": file_path, "recipe": recipe, "instruction": instruction,
+              "recipe_name": recipe_name, "replace": replace, "save_as": save_as,
+              "out_path": out_path}
+    return _maybe_job("transform_apply", params, async_)
+
+
+@mcp.tool()
+def run_recipe(file_path: str, recipe_name: str, out_path: str | None = None,
+               async_: bool = False) -> dict:
+    """Replay a SAVED cleanup recipe on a new file — next month's file gets last
+    month's fixes in one call. Writes to a new file; the input is never modified.
+    Unknown recipe -> error listing saved recipes (save one via transform_apply's
+    save_as). For big files pass async_=true and poll `job_status`."""
+    params = {"file": file_path, "recipe_name": recipe_name, "out_path": out_path}
+    return _maybe_job("transform_apply", params, async_)
+
+
+@mcp.tool()
+def save_ruleset(name: str, spec: dict) -> dict:
+    """Save a reusable validation ruleset for `validate`. Spec keys (all optional):
+    required=[cols], formats={col: gst|pan|aadhaar|email|phone|ifsc},
+    ranges={col: {min, max}}, unique=[cols], references={col: [allowed]},
+    expressions=[{name, expr, severity}] (pandas-eval, e.g. "net_pay <= gross_pay"),
+    auto=false to skip inferred checks. Read it back as the resource ruleset://<name>."""
+    return _post(f"/rulesets/{name}", {"spec": spec})
+
+
+@mcp.tool()
+def export_report(file_path: str, ruleset: str = "default", sensitivity: float = 0.05,
+                  out_path: str | None = None, sheet: str | None = None,
+                  async_: bool = False) -> dict:
+    """Write a highlighted xlsx quality report next to the file: Data sheet with
+    problem cells coloured by kind, Issues + Anomalies sheets, and a Summary with
+    the Data Health Score and its full deduction breakdown (never a bare number).
+    Returns the report path and the health score. The input file is never modified.
+    For big files pass async_=true and poll `job_status`."""
+    params = {"file": file_path, "ruleset": ruleset, "sensitivity": sensitivity,
+              "out_path": out_path, "sheet": sheet}
+    return _maybe_job("report", params, async_)
+
+
+@mcp.tool()
+def job_status(job_id: str) -> dict:
+    """Check a background job started with async_=true on another tool. Status is
+    queued | running | done | error; when done, the full result is under 'result'.
+    Poll every few seconds — do not busy-loop. Unknown id -> error saying how to
+    list jobs."""
+    return _forward("GET", f"/jobs/{job_id}")
+
+
+@mcp.resource("ruleset://{name}")
+def ruleset_resource(name: str) -> str:
+    """A saved or built-in validation ruleset spec as JSON."""
+    import json
+
+    return json.dumps(_forward("GET", f"/rulesets/{name}"), indent=2)
+
+
+@mcp.resource("recipe://{name}")
+def recipe_resource(name: str) -> str:
+    """A saved transformation recipe as JSON."""
+    import json
+
+    return json.dumps(_forward("GET", f"/recipes/{name}"), indent=2)
 
 
 def main() -> None:
