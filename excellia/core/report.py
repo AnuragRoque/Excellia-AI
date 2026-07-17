@@ -212,3 +212,79 @@ def export_report(
         "flags": len(flags),
         "note": "row numbers are Excel rows: header is row 1, first data row is 2",
     }
+
+
+def reconciliation_report(result, summary: dict, out_path: str) -> str:
+    """The 5-sheet reconciliation xlsx: Summary / Matched / Only-in-A /
+    Only-in-B / Discrepancies (side-by-side a|b with variance)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    bold = Font(bold=True)
+
+    ws = wb.active
+    ws.title = "Summary"
+    rows = [
+        ("matched", summary.get("matched")),
+        ("discrepancies", summary.get("discrepancies")),
+        ("only_in_a", summary.get("only_in_a")),
+        ("only_in_b", summary.get("only_in_b")),
+        ("match_rate", summary.get("match_rate")),
+        ("profile", summary.get("profile")),
+    ]
+    for label, value in rows:
+        ws.append([label, value])
+    ws.append([])
+    ws.append(["match levels"])
+    ws.cell(row=ws.max_row, column=1).font = bold
+    for level, n in sorted((summary.get("match_levels") or {}).items()):
+        ws.append([level, n])
+    ws.append([])
+    ws.append(["variance totals (abs)"])
+    ws.cell(row=ws.max_row, column=1).font = bold
+    for col, total in sorted((summary.get("variance_totals_abs") or {}).items()):
+        ws.append([col, total])
+
+    def _sheet_of_records(title: str, records: list[dict]) -> None:
+        ws = wb.create_sheet(title)
+        if not records:
+            ws.append(["(empty)"])
+            return
+        headers = list(records[0])
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = bold
+        for rec in records:
+            ws.append([_plain(rec.get(h)) for h in headers])
+
+    _sheet_of_records("Matched", result.matched)
+    _sheet_of_records("Only-in-A", result.only_in_a)
+    _sheet_of_records("Only-in-B", result.only_in_b)
+
+    ws = wb.create_sheet("Discrepancies")
+    if result.discrepancies:
+        keys = [k for k in result.discrepancies[0]
+                if k not in ("a", "b", "differences")]
+        ws.append(keys + ["field", "a", "b", "diff_abs", "diff_pct"])
+        for cell in ws[1]:
+            cell.font = bold
+        for d in result.discrepancies:
+            for col, diff in d.get("differences", {}).items():
+                ws.append([_plain(d.get(k)) for k in keys] + [
+                    col, _plain(diff.get("a")), _plain(diff.get("b")),
+                    diff.get("diff_abs"), diff.get("diff_pct")])
+    else:
+        ws.append(["(empty)"])
+
+    wb.save(out_path)
+    return os.path.abspath(out_path)
+
+
+def _plain(value):
+    """Cell-safe scalar (dicts/lists become compact JSON strings)."""
+    if isinstance(value, (dict, list)):
+        import json
+
+        return json.dumps(value, default=str)
+    return value

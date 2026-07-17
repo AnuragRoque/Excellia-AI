@@ -257,6 +257,128 @@ def job_status(job_id: str) -> dict:
     return _forward("GET", f"/jobs/{job_id}")
 
 
+@mcp.tool()
+def train_fraud_model(file_path: str, label_column: str, model_name: str,
+                      positive_label: str | None = None,
+                      algorithm: str = "gradient_boosting",
+                      async_: bool = False) -> dict:
+    """Train a fraud-risk model from a LABELLED spreadsheet (a column marking which
+    rows were fraud). Returns an honest ModelCard: cross-validated precision/recall/
+    F1/ROC-AUC, confusion matrix, top features — never training-set scores. Refuses
+    with the reason when the label is missing/single-class, rows < 200, or a feature
+    leaks the label. No labelled history? Use detect_anomalies instead. Training can
+    be slow — pass async_=true and poll job_status for big files."""
+    params = {"file": file_path, "label_column": label_column, "model_name": model_name,
+              "positive_label": positive_label, "algorithm": algorithm}
+    if async_:
+        return _post("/jobs", {"op": "fraud_train", "params": params})
+    return _post("/fraud/train", params)
+
+
+@mcp.tool()
+def score_fraud(file_path: str, model_name: str, threshold: float | None = None,
+                async_: bool = False) -> dict:
+    """Score a fresh spreadsheet with a trained fraud model. Each row gets a
+    fraud_probability (0-1), a risk_band (low/medium/high/critical), and its top_factors
+    — the features that pushed THIS row's score up, with values. These are RISK
+    estimates, never verdicts; the ModelCard with its metrics is attached to every
+    response. Refuses if the file's columns don't match what the model was trained on
+    (the error lists the difference). List models with list_fraud_models."""
+    params = {"file": file_path, "model_name": model_name, "threshold": threshold}
+    if async_:
+        return _post("/jobs", {"op": "fraud_score", "params": params})
+    return _post("/fraud/score", params)
+
+
+@mcp.tool()
+def evaluate_fraud_model(file_path: str, label_column: str, model_name: str) -> dict:
+    """The honesty check: score a LABELLED holdout file the model never saw and get
+    real-world precision/recall/F1/confusion, side by side with the training-time CV
+    metrics. A big drop means drift or overfitting — retrain on fresher data. Use this
+    before trusting score_fraud output on production files."""
+    return _post("/fraud/evaluate", {"file": file_path, "label_column": label_column,
+                                     "model_name": model_name})
+
+
+@mcp.tool()
+def list_fraud_models() -> dict:
+    """List every trained fraud model's ModelCard: metrics, class balance, features
+    used/dropped, top importances, trained-at, schema fingerprint. Cards never contain
+    the training data. Use this to pick a model_name for score_fraud, or to check
+    whether a model exists before training a new one."""
+    return _forward("GET", "/fraud/models")
+
+
+@mcp.tool()
+def save_reconciliation_profile(name: str, spec: dict) -> dict:
+    """Save a reusable reconciliation profile for one-click monthly runs. Spec:
+    {"keys": [match columns] (required), "tolerance": {numeric/days/fuzzy},
+    "fuzzy_keys": 0-1 (opt-in typo-tolerant key matching), "pre_recipe_a"/"pre_recipe_b":
+    clean-op steps run before matching, "dedupe_a"/"dedupe_b": {columns, keep|aggregate}}.
+    Read it back as the resource profile://<name>; run it with run_reconciliation_profile."""
+    return _post(f"/reconcile/profiles/{name}", {"spec": spec})
+
+
+@mcp.tool()
+def run_reconciliation_profile(file_a: str, file_b: str,
+                               profile_name: str | None = None,
+                               profile: dict | None = None,
+                               write_report: bool = True,
+                               out_path: str | None = None,
+                               async_: bool = False) -> dict:
+    """Run a full reconciliation: pre-cleaning, dedupe, tolerant matching, and a
+    5-sheet xlsx report (Summary / Matched with L1-L3 levels / Only-in-A / Only-in-B /
+    Discrepancies with diff_abs+diff_pct variance). Pass profile_name (saved) or a
+    literal profile spec — exactly one. Match levels: L1 exact, L2 within tolerance,
+    L3 fuzzy key. For big file pairs pass async_=true and poll job_status."""
+    params = {"a": file_a, "b": file_b, "profile_name": profile_name,
+              "profile": profile, "report": write_report, "out_path": out_path}
+    if async_:
+        return _post("/jobs", {"op": "reconcile_run", "params": params})
+    return _post("/reconcile/run", params)
+
+
+@mcp.tool()
+def match_names(file_path: str, col_a: str | None = None, col_b: str | None = None,
+                group_by: str | None = None, llm_verify: bool = False,
+                seq_threshold: float = 50.0, async_: bool = False) -> dict:
+    """KYC name matching, two modes: col_a+col_b compares declared vs registry name
+    per row; col_a alone (optionally with group_by to bucket) cross-compares all name
+    pairs. Every pair gets a deterministic 0-100 similarity; with llm_verify=true a
+    local-LLM verdict (match/no_match + reason) is added on top — parse failures
+    degrade to 'unverified', never crash. Too many pairs -> error telling you to add
+    group_by. Rows are Excel rows (data starts at 2)."""
+    params = {"file": file_path, "col_a": col_a, "col_b": col_b, "group_by": group_by,
+              "llm_verify": llm_verify, "seq_threshold": seq_threshold}
+    if async_:
+        return _post("/jobs", {"op": "kyc_match_names", "params": params})
+    return _post("/kyc/match_names", params)
+
+
+@mcp.tool()
+def dedupe_rows(file_path: str, columns: list[str], threshold: float = 85.0,
+                strategy: str = "most_complete", out_path: str | None = None,
+                async_: bool = False) -> dict:
+    """Entity-level dedupe: cluster near-duplicate rows by similarity on the given
+    columns (name + address style), keep one canonical row per cluster (strategy:
+    most_complete | first | last), and write the deduped copy to a NEW file — the
+    input is never modified. Returns the merge log with Excel row numbers. This
+    RESOLVES duplicates; detect_anomalies only FLAGS them."""
+    params = {"file": file_path, "columns": columns, "threshold": threshold,
+              "strategy": strategy, "out_path": out_path}
+    if async_:
+        return _post("/jobs", {"op": "kyc_dedupe", "params": params})
+    return _post("/kyc/dedupe", params)
+
+
+@mcp.resource("profile://{name}")
+def profile_resource(name: str) -> str:
+    """A saved reconciliation profile spec as JSON."""
+    import json
+
+    return json.dumps(_forward("GET", f"/reconcile/profiles/{name}"), indent=2)
+
+
 @mcp.resource("ruleset://{name}")
 def ruleset_resource(name: str) -> str:
     """A saved or built-in validation ruleset spec as JSON."""

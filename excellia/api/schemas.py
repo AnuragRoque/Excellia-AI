@@ -121,3 +121,76 @@ class SpecBody(BaseModel):
 class JobRequest(BaseModel):
     op: str
     params: dict = Field(default_factory=dict)
+
+
+class FraudTrainRequest(_SheetMixin):
+    file: str
+    label_column: str
+    model_name: str
+    positive_label: str | None = None
+    algorithm: str = "gradient_boosting"
+
+    @field_validator("positive_label", mode="before")
+    @classmethod
+    def _clean_positive(cls, v: object) -> object:
+        return _normalise_optional(v) if isinstance(v, str) else v
+
+    @field_validator("algorithm", mode="before")
+    @classmethod
+    def _default_algorithm(cls, v: object) -> object:
+        if isinstance(v, str) and v.strip().lower() in _NULL_SENTINELS:
+            return "gradient_boosting"
+        return v
+
+
+class FraudScoreRequest(_SheetMixin):
+    file: str
+    model_name: str
+    threshold: float | None = Field(default=None, gt=0, lt=1)
+
+
+class FraudEvaluateRequest(_SheetMixin):
+    file: str
+    label_column: str
+    model_name: str
+
+
+class ReconcileRunRequest(BaseModel):
+    a: str
+    b: str
+    profile_name: str | None = None
+    profile: dict | None = None
+    report: bool = True
+    out_path: str | None = None
+
+    @field_validator("profile_name", "out_path", mode="before")
+    @classmethod
+    def _clean_optionals(cls, v: object) -> object:
+        return _normalise_optional(v) if isinstance(v, str) else v
+
+
+class KycMatchRequest(_SheetMixin):
+    file: str
+    col_a: str | None = None
+    col_b: str | None = None
+    group_by: str | None = None
+    llm_verify: bool = False
+    seq_threshold: float = Field(default=50.0, ge=0, le=100)
+
+    @field_validator("col_a", "col_b", "group_by", mode="before")
+    @classmethod
+    def _clean_optionals(cls, v: object) -> object:
+        return _normalise_optional(v) if isinstance(v, str) else v
+
+
+class KycDedupeRequest(_SheetMixin):
+    file: str
+    columns: list[str]
+    threshold: float = Field(default=85.0, ge=0, le=100)
+    strategy: str = "most_complete"
+    out_path: str | None = None
+
+    @field_validator("out_path", mode="before")
+    @classmethod
+    def _clean_out(cls, v: object) -> object:
+        return _normalise_optional(v) if isinstance(v, str) else v

@@ -21,20 +21,38 @@ from excellia.api.schemas import (
     AnomaliesRequest,
     AskRequest,
     CleanRequest,
+    FraudEvaluateRequest,
+    FraudScoreRequest,
+    FraudTrainRequest,
     JobRequest,
+    KycDedupeRequest,
+    KycMatchRequest,
     ProfileRequest,
     ReconcileRequest,
+    ReconcileRunRequest,
     ReportRequest,
     SpecBody,
     TransformApplyRequest,
     TransformPreviewRequest,
     ValidateRequest,
 )
-from excellia.core import anomaly, ask, clean, ingest, reconcile, report, store, transform, validate
+from excellia.core import (
+    anomaly,
+    ask,
+    clean,
+    fraud,
+    ingest,
+    kyc,
+    reconcile,
+    report,
+    store,
+    transform,
+    validate,
+)
 from excellia.core.llm import LLMError
 from excellia.core.transform import TransformError
 
-_VERSION = "0.3.0"
+_VERSION = "0.4.0"
 
 # Files above this on-disk size take the streaming (chunked) core paths
 # instead of the in-memory ones. ~15MB of xlsx/csv is roughly where full
@@ -325,6 +343,168 @@ def report_endpoint(req: ReportRequest) -> dict:
     return _do_report(req)
 
 
+# --- Stage C: fraud ---------------------------------------------------
+
+def _do_fraud_train(req: FraudTrainRequest) -> dict:
+    df = _load(req.file, sheet=req.sheet)
+    try:
+        card = fraud.train(df, label_column=req.label_column, model_name=req.model_name,
+                           positive_label=req.positive_label, algorithm=req.algorithm)
+    except fraud.FraudError as e:
+        raise HTTPException(400, str(e))
+    except store.StoreError as e:
+        raise HTTPException(400, str(e))
+    return {"model_card": card,
+            "note": "Metrics are 5-fold cross-validation. Evaluate on a labelled "
+                    "holdout with /fraud/evaluate before trusting them."}
+
+
+@app.post("/fraud/train")
+def fraud_train_endpoint(req: FraudTrainRequest) -> dict:
+    return _do_fraud_train(req)
+
+
+def _do_fraud_score(req: FraudScoreRequest) -> dict:
+    df = _load(req.file, sheet=req.sheet)
+    try:
+        return fraud.score(df, model_name=req.model_name, threshold=req.threshold)
+    except (fraud.FraudError, store.StoreError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/fraud/score")
+def fraud_score_endpoint(req: FraudScoreRequest) -> dict:
+    return _do_fraud_score(req)
+
+
+@app.post("/fraud/evaluate")
+def fraud_evaluate_endpoint(req: FraudEvaluateRequest) -> dict:
+    df = _load(req.file, sheet=req.sheet)
+    try:
+        return fraud.evaluate(df, label_column=req.label_column, model_name=req.model_name)
+    except (fraud.FraudError, store.StoreError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/fraud/models")
+def fraud_models_endpoint() -> dict:
+    return {"models": fraud.list_models()}
+
+
+# --- Stage C: reconciliation profiles ---------------------------------
+
+@app.get("/reconcile/profiles")
+def reconcile_profiles_endpoint() -> dict:
+    return {"profiles": store.list_names("profiles")}
+
+
+@app.get("/reconcile/profiles/{name}")
+def reconcile_profile_get(name: str) -> dict:
+    try:
+        return {"name": name, "spec": store.load("profiles", name)}
+    except store.StoreError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/reconcile/profiles/{name}")
+def reconcile_profile_save(name: str, body: SpecBody) -> dict:
+    if not body.spec.get("keys"):
+        raise HTTPException(
+            400, 'A reconciliation profile needs at least {"keys": [...]}. Optional: '
+                 "tolerance, fuzzy_keys, pre_recipe_a/b, dedupe_a/b, name.")
+    try:
+        path = store.save("profiles", name, {**body.spec, "name": name})
+    except store.StoreError as e:
+        raise HTTPException(400, str(e))
+    store.record("save_reconciliation_profile", params={"name": name})
+    return {"saved": name, "path": path}
+
+
+@app.delete("/reconcile/profiles/{name}")
+def reconcile_profile_delete(name: str) -> dict:
+    if not store.delete("profiles", name):
+        raise HTTPException(404, f"No saved reconciliation profile '{name}'.")
+    return {"deleted": name}
+
+
+def _do_reconcile_run(req: ReconcileRunRequest) -> dict:
+    given = [x for x in (req.profile, req.profile_name) if x]
+    if len(given) != 1:
+        raise HTTPException(
+            400, "Pass exactly one of: profile (a literal spec) or profile_name "
+                 "(saved via POST /reconcile/profiles/<name>).")
+    if req.profile_name:
+        try:
+            profile = store.load("profiles", req.profile_name)
+        except store.StoreError as e:
+            raise HTTPException(404, str(e))
+    else:
+        profile = req.profile
+    df_a = _load(req.a)
+    df_b = _load(req.b)
+    try:
+        run = reconcile.run_profile(df_a, df_b, profile)
+    except (ValueError, clean.CleanError) as e:
+        raise HTTPException(400, str(e))
+    out = {"summary": run["summary"], "result": run["result"].to_dict()}
+    if req.report:
+        path = _out_path(req.a, req.out_path, "reconciliation")
+        if not path.lower().endswith(".xlsx"):
+            path = os.path.splitext(path)[0] + ".xlsx"
+        out["report_path"] = report.reconciliation_report(
+            run["result"], run["summary"], path)
+    store.record("reconcile_run", file=req.a,
+                 params={"profile": profile.get("name") or "(inline)"},
+                 summary=run["summary"])
+    return out
+
+
+@app.post("/reconcile/run")
+def reconcile_run_endpoint(req: ReconcileRunRequest) -> dict:
+    return _do_reconcile_run(req)
+
+
+# --- Stage C: KYC -----------------------------------------------------
+
+def _do_kyc_match(req: KycMatchRequest) -> dict:
+    df = _load(req.file, sheet=req.sheet)
+    try:
+        result = kyc.match_names(
+            df, col_a=req.col_a, col_b=req.col_b, group_by=req.group_by,
+            llm_verify=req.llm_verify, seq_threshold=req.seq_threshold)
+    except kyc.KycError as e:
+        raise HTTPException(400, str(e))
+    except LLMError as e:
+        raise _llm_503(e)
+    store.record("kyc_match_names", file=req.file,
+                 summary={"candidates": result["summary"]["candidates"]})
+    return result
+
+
+@app.post("/kyc/match_names")
+def kyc_match_endpoint(req: KycMatchRequest) -> dict:
+    return _do_kyc_match(req)
+
+
+def _do_kyc_dedupe(req: KycDedupeRequest) -> dict:
+    df = _load(req.file, sheet=req.sheet)
+    try:
+        result = kyc.dedupe(df, columns=req.columns, threshold=req.threshold,
+                            strategy=req.strategy)
+    except kyc.KycError as e:
+        raise HTTPException(400, str(e))
+    deduped = result.pop("deduped")
+    out = _write_df(deduped, _out_path(req.file, req.out_path, "deduped"))
+    store.record("kyc_dedupe", file=req.file,
+                 summary={"before": result["rows_before"], "after": result["rows_after"]})
+    return {**result, "out_path": out, "sample": _sample(deduped)}
+
+
+@app.post("/kyc/dedupe")
+def kyc_dedupe_endpoint(req: KycDedupeRequest) -> dict:
+    return _do_kyc_dedupe(req)
+
+
 # --- workspace CRUD: rulesets, recipes, history -----------------------
 
 @app.get("/rulesets")
@@ -416,6 +596,11 @@ _JOB_OPS = {
     "clean": (CleanRequest, _do_clean),
     "transform_apply": (TransformApplyRequest, _do_transform_apply),
     "report": (ReportRequest, _do_report),
+    "fraud_train": (FraudTrainRequest, _do_fraud_train),
+    "fraud_score": (FraudScoreRequest, _do_fraud_score),
+    "reconcile_run": (ReconcileRunRequest, _do_reconcile_run),
+    "kyc_match_names": (KycMatchRequest, _do_kyc_match),
+    "kyc_dedupe": (KycDedupeRequest, _do_kyc_dedupe),
 }
 
 

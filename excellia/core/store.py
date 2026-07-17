@@ -140,3 +140,53 @@ def history(limit: int = 50) -> list[dict[str, Any]]:
 def cache_dir() -> Path:
     """Scratch area for pre-images and response caches (safe to wipe)."""
     return home() / "cache"
+
+
+# --- trained models (fraud etc.): .joblib pipeline + .meta.json card --
+
+def save_model(name: str, pipeline: Any, card: dict[str, Any]) -> str:
+    """Persist a fitted sklearn pipeline beside its ModelCard.
+
+    The card holds metrics, features, and a schema fingerprint — never
+    the training data itself."""
+    import joblib
+
+    _check_name(name)
+    base = home() / "models"
+    joblib.dump(pipeline, base / f"{name}.joblib")
+    (base / f"{name}.meta.json").write_text(
+        json.dumps(card, indent=2, default=str), encoding="utf-8"
+    )
+    return str(base / f"{name}.joblib")
+
+
+def load_model(name: str) -> tuple[Any, dict[str, Any]]:
+    """(pipeline, card) for a saved model; instructive error if missing."""
+    import joblib
+
+    _check_name(name)
+    base = home() / "models"
+    path = base / f"{name}.joblib"
+    if not path.exists():
+        available = ", ".join(list_models()) or "none trained yet"
+        raise StoreError(
+            f"No trained model named '{name}'. Available: {available}. "
+            "Train one with train_fraud_model / POST /fraud/train."
+        )
+    card_path = base / f"{name}.meta.json"
+    card = json.loads(card_path.read_text(encoding="utf-8")) if card_path.exists() else {}
+    return joblib.load(path), card
+
+
+def list_models() -> list[str]:
+    return sorted(p.stem for p in (home() / "models").glob("*.joblib"))
+
+
+def model_cards() -> list[dict[str, Any]]:
+    """All saved ModelCards (metrics and metadata, never data)."""
+    cards = []
+    for name in list_models():
+        path = home() / "models" / f"{name}.meta.json"
+        if path.exists():
+            cards.append(json.loads(path.read_text(encoding="utf-8")))
+    return cards

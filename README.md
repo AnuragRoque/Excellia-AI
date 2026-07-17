@@ -46,7 +46,7 @@ Same MCP server, zero code changes between the two brains. That is the point.
 **Every way to run it** — Claude Desktop, Claude Code, offline agent, raw HTTP API, other MCP
 hosts — with exact commands and troubleshooting: [docs/RUNNING.md](docs/RUNNING.md).
 
-## Eleven tools
+## Nineteen tools
 
 | Tool | What it does |
 |---|---|
@@ -61,9 +61,16 @@ hosts — with exact commands and troubleshooting: [docs/RUNNING.md](docs/RUNNIN
 | `save_ruleset` | Persist a custom validation ruleset (also readable as the `ruleset://` MCP resource) |
 | `export_report` | Highlighted xlsx report + Data Health Score with its full deduction breakdown |
 | `job_status` | Poll long-running work started with `async_=true` (big files run on a job queue) |
+| `train_fraud_model` | Labelled history → risk model with an honest ModelCard (CV metrics, leakage detection, refusals that name the fix) |
+| `score_fraud` | Fresh file → per-row fraud probability, risk band, and the top factors pushing each score up |
+| `evaluate_fraud_model` | Labelled holdout → real-world accuracy next to the training metrics |
+| `list_fraud_models` | Every saved ModelCard (metrics and features — never your data) |
+| `save_reconciliation_profile` / `run_reconciliation_profile` | One-click monthly reconciliation: pre-cleaning, dedupe, tolerant matching with L1/L2/L3 levels, variance, 5-sheet xlsx report |
+| `match_names` | KYC hybrid name matching — deterministic similarity, optional offline-LLM verdicts |
+| `dedupe_rows` | Entity resolution: cluster near-duplicates, keep a canonical row, log every merge |
 
-`ask_data` and the transform tools need a local [Ollama](https://ollama.com); everything else is
-pure deterministic code. Row numbers everywhere are Excel rows: header is row 1, data starts at row 2.
+`ask_data`, the transform tools, and `match_names` with `llm_verify` need a local
+[Ollama](https://ollama.com); everything else is pure deterministic code. Row numbers everywhere are Excel rows: header is row 1, data starts at row 2.
 Big files stream in chunks (a 500K-row file profiles and validates comfortably). Saved rulesets,
 recipes, and the append-only audit trail live in `~/.excellia/` (override with `EXCELLIA_HOME`).
 
@@ -91,9 +98,9 @@ Using Claude Desktop: the .xlsx file, every row, all pandas/ML processing stay l
 
 ```bash
 pip install -e .[dev]
-pytest          # 172 tests (+2 opt-in: live MCP integration, 500K-row memory budget)
+pytest          # 218 tests (+2 opt-in: live MCP integration, 500K-row memory budget)
 ```
 
 ## Status
 
-Stages A (working MCP loop, `v0.2.0-stage-a`) and B (useful: ask/transform/recipes/reports/jobs/big files, `v0.3.0-stage-b`) are **done**. Next up is Stage C — the domain suites: fraud train/score, reconciliation profiles, KYC matching. See [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.
+Stages A (working MCP loop, `v0.2.0-stage-a`), B (useful: ask/transform/recipes/reports/jobs/big files, `v0.3.0-stage-b`), and C (domain suites: fraud train/score, reconciliation pro, KYC, `v0.4.0-stage-c`) are **done** — the whole engine, API, and 19-tool MCP surface exist. Next up is Stage D — the faces: web app and Excel add-in with `=XAI()` formulas. See [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.

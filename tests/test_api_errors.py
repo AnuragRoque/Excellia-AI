@@ -71,7 +71,7 @@ def test_string_null_ruleset_falls_back_to_default():
 
 # --- MCP server (no live API needed) -----------------------------------
 
-def test_mcp_registers_the_v2_surface():
+def test_mcp_registers_the_full_surface():
     tools = asyncio.run(mcp_server.mcp.list_tools())
     assert {t.name for t in tools} == {
         # Stage A pillars
@@ -79,6 +79,10 @@ def test_mcp_registers_the_v2_surface():
         # Stage B surface
         "ask_data", "transform_preview", "transform_apply", "run_recipe",
         "save_ruleset", "export_report", "job_status",
+        # Stage C domain suites
+        "train_fraud_model", "score_fraud", "evaluate_fraud_model",
+        "list_fraud_models", "save_reconciliation_profile",
+        "run_reconciliation_profile", "match_names", "dedupe_rows",
     }
     for t in tools:
         assert len(t.description) > 80, f"{t.name} docstring too thin to guide a model"
@@ -87,7 +91,7 @@ def test_mcp_registers_the_v2_surface():
 def test_mcp_registers_resources():
     templates = asyncio.run(mcp_server.mcp.list_resource_templates())
     uris = {t.uriTemplate for t in templates}
-    assert {"ruleset://{name}", "recipe://{name}"} <= uris
+    assert {"ruleset://{name}", "recipe://{name}", "profile://{name}"} <= uris
 
 
 def test_mcp_reports_api_down_instructively(monkeypatch):

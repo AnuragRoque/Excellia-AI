@@ -1,9 +1,10 @@
 # Running Excellia — every way that works today
 
-> Status: Stage B (`v0.3.0-stage-b`). What exists: the core engine, the core API (with job queue
-> and workspace CRUD), the thin MCP server (11 tools + resources), and the offline Ollama agent.
-> This guide lists every way to run them. Paths below are Windows-style because that's the dev
-> machine; everything also runs on Linux/macOS (swap `.venv\Scripts\` for `.venv/bin/` and drop `.exe`).
+> Status: Stage C (`v0.4.0-stage-c`). What exists: the core engine (incl. fraud scoring,
+> reconciliation pro, KYC), the core API (job queue + workspace CRUD), the thin MCP server
+> (19 tools + resources), and the offline Ollama agent. This guide lists every way to run them.
+> Paths below are Windows-style because that's the dev machine; everything also runs on
+> Linux/macOS (swap `.venv\Scripts\` for `.venv/bin/` and drop `.exe`).
 
 The tools, whichever door you enter through:
 
@@ -20,6 +21,13 @@ The tools, whichever door you enter through:
 | `save_ruleset` | Save a custom validation ruleset |
 | `export_report` | Highlighted xlsx + Data Health Score with breakdown |
 | `job_status` | Poll big-file jobs started with `async_=true` |
+| `train_fraud_model` | Labelled file → model + honest CV-metrics ModelCard; refuses on leakage/too-few-rows |
+| `score_fraud` | Fresh file → per-row probability, risk band, top factors |
+| `evaluate_fraud_model` | Labelled holdout → real-world accuracy vs training metrics |
+| `list_fraud_models` | All saved ModelCards |
+| `save_reconciliation_profile` / `run_reconciliation_profile` | Saved profile → pre-clean, dedupe, match (L1/L2/L3), 5-sheet xlsx report |
+| `match_names` * (only with llm_verify) | KYC name matching: deterministic similarity + optional offline-LLM verdicts |
+| `dedupe_rows` | Entity dedupe: clusters, canonical rows, merge log, new file |
 
 Tools marked * need a local Ollama running; the rest are pure deterministic code.
 Row numbers everywhere are Excel rows: header = 1, first data row = 2.
@@ -119,8 +127,10 @@ excellia-api        # uvicorn on http://127.0.0.1:8000 — keeps logs in the for
 
 Interactive docs at http://127.0.0.1:8000/docs — the full surface lives there. Highlights:
 sync analysis (`/profile /validate /anomalies /reconcile /ask /clean /transform/preview
-/transform/apply /report`), workspace CRUD (`/rulesets /recipes /history`), and the job queue
-(`POST /jobs {op, params}` → poll `GET /jobs/{id}`) for big files. Core examples:
+/transform/apply /report`), domain suites (`/fraud/train|score|evaluate|models`,
+`/reconcile/profiles` CRUD + `/reconcile/run`, `/kyc/match_names /kyc/dedupe`), workspace CRUD
+(`/rulesets /recipes /history`), and the job queue (`POST /jobs {op, params}` → poll
+`GET /jobs/{id}`) for big files. Core examples:
 
 ```powershell
 # health
@@ -166,7 +176,7 @@ $env:EXCELLIA_RUN_MCP_IT = "1"; pytest tests/test_mcp_integration.py -v
 ## Running the tests
 
 ```powershell
-pytest                                    # 172 tests, fast, no network, no Ollama needed
+pytest                                    # 218 tests, fast, no network, no Ollama needed
 $env:EXCELLIA_RUN_MCP_IT = "1"; pytest    # + the live MCP stdio round-trip
 $env:EXCELLIA_BIG = "1"; pytest           # + the 500K-row memory-budget test (~90s)
 ```
@@ -183,6 +193,7 @@ $env:EXCELLIA_BIG = "1"; pytest           # + the 500K-row memory-budget test (~
 
 ## What you can't do yet (so you don't go looking)
 
-No fraud train/score, no KYC name matching/dedupe, no reconciliation profiles with match levels,
-no web app, no Excel add-in / `=XAI()` formulas. That's Stages C–D — live status in
+No web app, no Excel add-in / `=XAI()` formulas (that's Stage D), and no OCR (deliberately
+deferred optional extra). Everything else — validation, anomalies, ask, transform, reports,
+fraud, reconciliation profiles, KYC — is live. Status in
 [`EXCELLIA_FEATURES.md`](../EXCELLIA_FEATURES.md) §1.

@@ -10,10 +10,10 @@
 **Repo:** `11 Excellia Core/excellia_codebase`
 **Legacy source (read-only reference):** `../05 Excellia AI/Excellia-AI-Demo` (Flask monolith: `routes.py`, `routes2.py`)
 **Concept docs (the requirements this file absorbs):** `project concept/` — add-in concept, KYC spec, Limestone spec, Excellia demo knowledge
-**Last updated:** 2026-07-17 (Stage B landed: store/llm/clean/ask/transform/report modules, chunked
-big-file paths, job queue, workspace CRUD, MCP v2 with 11 tools + resources — 172 tests passing,
-plus opt-in 500K-row memory test and live MCP stdio test, plus a live offline `ask` smoke against
-local Ollama. Next: Stage C domain suites — fraud, reconciliation pro, KYC.)
+**Last updated:** 2026-07-17 (Stages B AND C landed the same day. Stage C: fraud train/score/
+evaluate with ModelCards + leakage detection, reconciliation pro with L1-L3 match levels /
+variance / profiles / 5-sheet report, KYC hybrid name matching + entity dedupe — 19 MCP tools,
+3 resource kinds, 218 tests passing. Next: Stage D faces — web app + Excel add-in.)
 
 ---
 
@@ -106,9 +106,29 @@ to finish binding and every tool call hangs. `tests/test_mcp_integration.py` gua
       server still imports zero pandas
 - [x] Starter ruleset packs: `kyc`, `invoice`, `payroll`, `bank-statement`
 
-### ⏭ NEXT — Stage C (current), then D → E in order
+### ✅ Stage C — DOMAIN SUITES — DONE 2026-07-17 (218 tests; detail + gate in §3)
 
-- [ ] Stage C — DOMAIN SUITES: fraud train/score, reconciliation profiles/levels/reports, KYC matching + dedupe
+- [x] `core/fraud.py` — `train/score/evaluate/list_models`: sklearn pipeline (GradientBoosting
+      default, RandomForest option), manual stratified 5-fold CV with class-imbalance sample
+      weights, ModelCards saved beside `.joblib` (metrics/features/schema fingerprint — never data),
+      leakage detector (numeric corr ≈1 + categorical perfect-encoding, named in the refusal),
+      per-row `top_factors` via occlusion against training baselines, risk bands, drift refusal
+- [x] `core/reconcile.py` grown — `match_level` L1/L2/L3 on every match, `diff_abs`/`diff_pct`
+      variance, opt-in `fuzzy_keys` second pass, `run_profile` (pre-recipes + dedupe-with-aggregate
+      per source → match → summary with match_rate/levels/variance totals)
+- [x] `core/kyc.py` — `name_similarity`, `match_names` (pairwise or group_by cross-compare, nC2
+      guard, opt-in offline-LLM verdicts degrading to `unverified` on parse failure), entity
+      `dedupe` (union-find clusters over sorted-neighbour similarity, canonical row by strategy)
+- [x] `core/store.py` grown — `save_model/load_model/model_cards` (joblib + meta.json)
+- [x] `report.reconciliation_report` — the 5-sheet xlsx (Summary/Matched/Only-in-A/Only-in-B/
+      Discrepancies with side-by-side variance)
+- [x] API — `/fraud/train|score|evaluate|models`, `/reconcile/profiles` CRUD + `/reconcile/run`,
+      `/kyc/match_names`, `/kyc/dedupe`; all five heavy ops also registered as job-queue ops
+- [x] MCP — 8 new tools (19 total) + `profile://` resource; server still zero pandas
+- [ ] OCR (`excellia[ocr]`, Tesseract-only) — deliberately deferred, stays optional-later
+
+### ⏭ NEXT — Stage D (current), then E
+
 - [ ] Stage D — FACES: web app (big/bulk files), Excel add-in (task pane + `=XAI()` formula mode)
 - [ ] Stage E — SHIP: polish, video, README, post, PyPI
 
@@ -184,9 +204,9 @@ to finish binding and every tool call hangs. `tests/test_mcp_integration.py` gua
 | Reconciliation (basic) | `reconcile.py` ✅ | `POST /reconcile` ✅ | `reconcile` ✅ | all |
 | **AI chat over data** | `ask.py` + `llm.py` ✅ | `POST /ask` ✅ | `ask_data` ✅ | task pane chat, web app chat, any MCP host |
 | **AI transform (2 modes: bulk + formula)** | `transform.py` + `clean.py` + `llm.py` ✅ | `POST /transform/preview`, `/transform/apply`, `POST /clean` ✅ | `transform_preview`, `transform_apply` ✅ | add-in task pane (bulk), `=XAI()` (per-cell), web app |
-| **Fraud analysis (train on labelled data, then score)** | `fraud.py` | `/fraud/train /fraud/score /fraud/models /fraud/evaluate` | `train_fraud_model`, `score_fraud`, `list_fraud_models` | web app wizard, MCP |
-| **Financial reconciliation (pro: profiles, cleaning, levels, reports)** | `reconcile.py` (grow) + `clean.py` + `report.py` | `/reconcile/profiles` CRUD + `/reconcile/run` | `run_reconciliation_profile`, `save_reconciliation_profile` | web app, MCP |
-| **KYC analysis (name match, dedupe, ID checks, OCR later)** | `kyc.py` (+ `ocr.py` optional extra) | `/kyc/match_names /kyc/dedupe` | `match_names`, `dedupe_rows` | web app, add-in `=XAI.MATCH`, MCP |
+| **Fraud analysis (train on labelled data, then score)** | `fraud.py` ✅ | `/fraud/train /fraud/score /fraud/models /fraud/evaluate` ✅ | `train_fraud_model`, `score_fraud`, `evaluate_fraud_model`, `list_fraud_models` ✅ | web app wizard, MCP ✅ |
+| **Financial reconciliation (pro: profiles, cleaning, levels, reports)** | `reconcile.py` ✅ + `clean.py` + `report.py` ✅ | `/reconcile/profiles` CRUD + `/reconcile/run` ✅ | `run_reconciliation_profile`, `save_reconciliation_profile` ✅ | web app, MCP ✅ |
+| **KYC analysis (name match, dedupe, ID checks, OCR later)** | `kyc.py` ✅ (+ `ocr.py` optional extra, unbuilt) | `/kyc/match_names /kyc/dedupe` ✅ | `match_names`, `dedupe_rows` ✅ | web app, add-in `=XAI.MATCH`, MCP ✅ |
 | Deterministic cleaning formulas (Limestone library) | `clean.py` ✅ | `POST /clean` ✅ | (used via transform) | web app, task pane |
 | Saved rulesets / recipes / profiles / models | `store.py` ✅ (profiles/models: Stage C) | CRUD endpoints ✅ (rulesets, recipes) | MCP **resources** ✅ + `save_ruleset` ✅ | all |
 | Big-file & bulk processing | chunking in `ingest.py` ✅ | **job queue** in API ✅ | `async_=True` variants + `job_status` ✅ | web app primarily |
@@ -326,7 +346,7 @@ unchanged server ✔ (live stdio integration test lists all 11 tools and profile
 the Claude Desktop GUI paste remains the same manual user step as Gate A) · health-score xlsx report
 opens ✔ (reopened and asserted with openpyxl in tests, incl. highlight fills)
 
-### Stage C — DOMAIN SUITES (fraud · reconciliation pro · KYC) — *current stage*
+### Stage C — DOMAIN SUITES (fraud · reconciliation pro · KYC) — ✅ DONE 2026-07-17
 
 Goal: the three money features. Each is a deep vertical on top of Stage B plumbing.
 
@@ -335,74 +355,83 @@ Goal: the three money features. Each is a deep vertical on top of Stage B plumbi
 The user story (yours, formalised): *"Give fraud-detected data as training input — then, for accuracy,
 they upload fresh data and the system scores it."*
 
-- [ ] `train(df, label_column, model_name, positive_label=None) -> FraudModelCard`
-  - sklearn Pipeline: impute → one-hot low-cardinality categoricals → scale numerics →
-    **GradientBoosting** (default) or RandomForest (option); class imbalance via class weights;
-    stratified 5-fold CV
+- [x] `train(df, label_column, model_name, positive_label=None) -> ModelCard`
+  - sklearn Pipeline: coerce/impute → one-hot low-cardinality categoricals → scale numerics →
+    **GradientBoosting** (default) or RandomForest (option); class imbalance via sample weights;
+    stratified 5-fold CV (manual loop — no dependence on sklearn's shifting fit-param routing)
   - **ModelCard** (saved as `models/<name>.meta.json` beside the `.joblib`): rows, class balance,
     features used/dropped, CV **precision / recall / F1 / ROC-AUC**, confusion matrix at the chosen
-    threshold, top-15 feature importances, trained-at, data fingerprint (schema hash — NOT the data)
-  - [ ] Refuses with an instructive error when: label column missing, single-class, < 200 usable rows,
-        or leakage suspected (a feature that equals the label or correlates ≈1.0 — name it in the error)
-- [ ] `score(df, model_name, threshold=None) -> list[FraudScore]`
-  - per row: `fraud_probability` (0–1), `risk_band` (low/medium/high/critical by quantile or fixed
-    thresholds from the card), **`top_factors`** — the 3 features pushing this row's score up, with values
-    (tree SHAP-style contributions or permutation fallback; never a bare probability)
-  - schema drift check: missing/extra columns vs the card → warn or refuse, listing the difference
-- [ ] `evaluate(df, label_column, model_name) -> metrics` — the "for accuracy" step: user uploads a
-      labelled holdout, gets honest precision/recall/confusion on data the model never saw
-- [ ] Unsupervised fallback stays `detect_anomalies` — and the fraud tool's docstring says exactly when
-      to use which ("no labelled history → use detect_anomalies")
-- [ ] API: `POST /fraud/train` (job — training can be slow), `POST /fraud/score`, `POST /fraud/evaluate`,
-      `GET /fraud/models`; MCP: `train_fraud_model`, `score_fraud`, `evaluate_fraud_model`, `list_fraud_models`
-- [ ] Honesty guardrails baked into tool output text: metrics always attached; wording is
-      "risk score", never "this IS fraud"; card shown on every score response
+    threshold, top-15 feature importances, feature baselines (for scoring factors), trained-at,
+    schema fingerprint (hash of column names — NOT the data)
+  - [x] Refuses with an instructive error when: label column missing (lists columns), single-class,
+        > 10 classes ("that looks like data, not a label"), < 200 usable rows, or leakage
+        (numeric corr ≈1.0, or a categorical that perfectly encodes the label — named in the error)
+- [x] `score(df, model_name, threshold=None)`
+  - per row: `fraud_probability` (0–1), `risk_band` (low/medium/high/critical, fixed thresholds),
+    **`top_factors`** — up to 3 features pushing this row's score up, with values and contributions
+    (occlusion against training baselines: one batch prediction per probed feature — cheap and local)
+  - schema drift check: missing columns → refuse listing the difference; extra columns → listed as ignored
+- [x] `evaluate(df, label_column, model_name) -> metrics` — the "for accuracy" step: labelled holdout →
+      honest precision/recall/F1/confusion side by side with the card's CV metrics + a drift note
+- [x] Unsupervised fallback stays `detect_anomalies` — said explicitly in the train refusals and the
+      `train_fraud_model` docstring ("no labelled history → use detect_anomalies")
+- [x] API: `POST /fraud/train` (also a job op — training can be slow), `POST /fraud/score`,
+      `POST /fraud/evaluate`, `GET /fraud/models`; MCP: `train_fraud_model`, `score_fraud`,
+      `evaluate_fraud_model`, `list_fraud_models`
+- [x] Honesty guardrails baked in: metrics always attached; wording is "risk score", never
+      "this IS fraud"; card attached to every score response; synthetic-signal test asserts a
+      metrics floor and the leakage detector fires on planted leaks
 
 #### C2. Financial reconciliation PRO (grow `core/reconcile.py` + `clean.py` + `report.py`)
 
 Everything Limestone did, minus the GUI debt:
 
-- [ ] **Match levels** on every matched/discrepant record: `L1` exact · `L2` within tolerance ·
-      `L3` fuzzy-key match (opt-in per profile) — analysts triage by level
-- [ ] **Variance columns** for numeric discrepancies: `diff_abs`, `diff_pct` per differing field
-- [ ] **Pre-steps** in the profile: cleaning recipe per source + dedupe (with aggregation strategy —
-      e.g. sum amounts on duplicate txn IDs) before matching
-- [ ] **Profiles** (`profiles/*.json`): `{name, source_a_hint, source_b_hint, keys, tolerance,
-      pre_recipe_a, pre_recipe_b, dedupe, report_options}` — one-click monthly runs:
-      `run_reconciliation_profile(file_a, file_b, profile_name)`
-- [ ] **Reconciliation report xlsx**: sheets = Summary (counts, match rate, variance totals) /
+- [x] **Match levels** on every matched/discrepant record: `L1` exact · `L2` within tolerance ·
+      `L3` fuzzy-key match (opt-in `fuzzy_keys` per profile, with `key_similarity` attached)
+- [x] **Variance columns** for numeric discrepancies: `diff_abs`, `diff_pct` per differing field,
+      plus per-field variance totals in the run summary
+- [x] **Pre-steps** in the profile: cleaning recipe per source (`pre_recipe_a/b`) + dedupe with
+      aggregation strategy (`dedupe_a/b` — e.g. sum amounts on duplicate txn IDs) before matching
+- [x] **Profiles** (`profiles/*.json`): `{name, keys, tolerance, fuzzy_keys, pre_recipe_a/b,
+      dedupe_a/b}` — one-click monthly runs: `run_reconciliation_profile(file_a, file_b, profile_name)`
+- [x] **Reconciliation report xlsx**: sheets = Summary (counts, match rate, levels, variance totals) /
       Matched (with level) / Only-in-A / Only-in-B / Discrepancies (side-by-side a|b + variance)
-- [ ] **History** → `history.jsonl` (profile, files hash, bucket counts, match rate) — feeds the web-app dashboard
-- [ ] API: profiles CRUD + `POST /reconcile/run` (job for big pairs); MCP: `run_reconciliation_profile`,
-      `save_reconciliation_profile`, resource `profile://<name>`
+- [x] **History** → `history.jsonl` (profile, file hash, bucket counts, match rate) via `store.record`
+- [x] API: profiles CRUD + `POST /reconcile/run` (also a job op for big pairs); MCP:
+      `run_reconciliation_profile`, `save_reconciliation_profile`, resource `profile://<name>`
 
 #### C3. KYC analysis (`core/kyc.py`, OCR as optional extra)
 
-- [ ] **Hybrid name matching** (the KYC tool's algorithm, generalised):
+- [x] **Hybrid name matching** (the KYC tool's algorithm, generalised):
   - `name_similarity(a, b) -> float` — normalise (lower, strip punctuation, collapse spaces) →
-    `SequenceMatcher.ratio()*100`
+    `SequenceMatcher.ratio()*100`; golden-pair tests (transliteration, honorifics, punctuation)
   - `match_names(df, col_a, col_b | group_by, llm_verify=False, seq_threshold=50)` — bulk nC2 within
-    groups or pairwise columns; when `llm_verify` and similarity ≥ threshold, `llm.py` renders the
-    strict-JSON verdict `{status: match|no_match, match_percent, reason}` (system prompt: the
-    "strict fraud-screening name assistant" from the KYC spec); parse-failure → deterministic score
-    with `verdict: "unverified"` — never a crash
-  - output per pair: both names, seq %, verdict, llm %, reason
-- [ ] **KYC dedupe** `dedupe(df, columns, threshold, strategy)` — near-duplicate *entity* resolution
-      built on the same similarity (clusters, keeps a canonical row, reports merges) — distinct from
+    groups (guarded: too many pairs → error telling you to add group_by) or pairwise columns; when
+    `llm_verify` and similarity ≥ threshold, `llm.py` renders the strict-JSON verdict
+    `{status: match|no_match, match_percent, reason}` (the "strict fraud-screening name assistant"
+    prompt); parse-failure → deterministic score with `verdict: "unverified"` — never a crash
+  - output per pair: both names, seq %, verdict, llm %, reason — all tested with a fake transport
+- [x] **KYC dedupe** `dedupe(df, columns, threshold, strategy)` — entity resolution: union-find
+      clusters over sorted-neighbour similarity, canonical row per cluster (`most_complete` /
+      first / last), merge log with Excel rows; deduped copy written to a NEW file — distinct from
       row-level near-dup flags in `anomaly.py`
-- [ ] **ID validation** = existing `kyc` ruleset ✅ (PAN/Aadhaar/GST/IFSC formats + uniqueness) — done
+- [x] **ID validation** = existing `kyc` ruleset ✅ (PAN/Aadhaar/GST/IFSC formats + uniqueness) — done
 - [ ] **OCR (later, optional):** `pip install excellia[ocr]` → `ocr.py` with **local Tesseract only**
       (Google Cloud Vision is cloud → excluded from default; may exist as an explicitly-named opt-in
       plugin, never silent). Regex dictionary from the KYC spec (Aadhaar `\d{4}\s?\d{4}\s?\d{4}`, PAN,
       GSTIN, DOB, gender) + optional local-LLM cleanup of noisy OCR text into the JSON schema.
       Extract → validate through the `kyc` ruleset automatically.
-- [ ] API: `/kyc/match_names` (job when bulk), `/kyc/dedupe`; MCP: `match_names`, `dedupe_rows`
+- [x] API: `/kyc/match_names` (also a job op for bulk), `/kyc/dedupe`; MCP: `match_names`, `dedupe_rows`
 
-**GATE C:** train a fraud model on a labelled demo file, evaluate on a holdout, score a fresh file with
-per-row reasons ✔ · a saved reconciliation profile runs end to end producing the 5-sheet report ✔ ·
-bulk name matching with LLM verify produces the verdict file offline ✔ · every output carries reasons ✔
+**GATE C — PASSED 2026-07-17** (tagged `v0.4.0-stage-c`): train on a labelled file, evaluate on a
+holdout, score a fresh file with per-row reasons ✔ (synthetic-signal tests assert the metrics floor,
+the leakage detector, drift refusal, and Excel-row factor output) · a saved reconciliation profile
+runs end to end producing the 5-sheet report ✔ (asserted sheet-by-sheet with openpyxl, via core AND
+the HTTP API) · bulk name matching with LLM verify produces verdicts offline ✔ (verdict table via
+API/MCP with fake-transport tests; *caveat: verdicts return as JSON, not yet as an xlsx file*) ·
+every output carries reasons ✔ · OCR remains deliberately unbuilt (optional `excellia[ocr]`, later)
 
-### Stage D — FACES (web app + Excel add-in)
+### Stage D — FACES (web app + Excel add-in) — *current stage*
 
 #### D1. Web app (`webapp/`) — the big-file / bulk door
 
@@ -518,14 +547,14 @@ GET  /jobs -> list
 | `transform_preview` ✅ | instruction → recipe + before/after sample (nothing changes yet) |
 | `transform_apply` ✅ | apply a previewed recipe; new columns unless told otherwise |
 | `run_recipe` ✅ | replay a saved cleanup on a new file |
-| `save_ruleset` ✅ / `save_reconciliation_profile` (Stage C) | persist reusable configs |
-| `run_reconciliation_profile` | one-click monthly reconciliation |
-| `train_fraud_model` | labelled file → model + honest metrics card |
-| `evaluate_fraud_model` | labelled holdout → real-world accuracy |
-| `score_fraud` | fresh file → per-row risk + top factors |
-| `list_fraud_models` | model cards |
-| `match_names` | KYC hybrid name matching (offline LLM verify optional) |
-| `dedupe_rows` | entity-level near-duplicate resolution |
+| `save_ruleset` ✅ / `save_reconciliation_profile` ✅ | persist reusable configs |
+| `run_reconciliation_profile` ✅ | one-click monthly reconciliation |
+| `train_fraud_model` ✅ | labelled file → model + honest metrics card |
+| `evaluate_fraud_model` ✅ | labelled holdout → real-world accuracy |
+| `score_fraud` ✅ | fresh file → per-row risk + top factors |
+| `list_fraud_models` ✅ | model cards |
+| `match_names` ✅ | KYC hybrid name matching (offline LLM verify optional) |
+| `dedupe_rows` ✅ | entity-level near-duplicate resolution |
 | `export_report` ✅ | highlighted xlsx / summary / health score |
 | `job_status` ✅ | poll long-running work |
 
@@ -613,6 +642,7 @@ of the interface: name the problem, name the fix, name the alternative tool.
 
 ---
 
-*End of checkpoint. Stages A and B are done and tagged (`v0.2.0-stage-a`, `v0.3.0-stage-b`) — build
-Stage C next (fraud `train/score/evaluate` is the natural entry; the store's `models/` dir and the
-job queue it needs already exist). Update checkboxes as you land work — this file is the memory.*
+*End of checkpoint. Stages A, B, and C are done and tagged (`v0.2.0-stage-a`, `v0.3.0-stage-b`,
+`v0.4.0-stage-c`) — the whole engine, API, and 19-tool MCP surface exist. Build Stage D next: the
+web app first (a pure client of the existing API — governing rule 1: humans click → HTTP, never MCP),
+then the Excel add-in. Update checkboxes as you land work — this file is the memory.*

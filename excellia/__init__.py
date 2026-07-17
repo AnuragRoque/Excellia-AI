@@ -5,4 +5,4 @@ air-gapped deployment. Your data never leaves either way — the only
 difference is where the reasoning happens.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
