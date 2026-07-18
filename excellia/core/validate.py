@@ -80,6 +80,21 @@ def resolve_ruleset(ruleset: str | dict) -> dict:
         )
 
 
+def check_format(values: list, fmt: str) -> list[bool]:
+    """Deterministic format verdicts for bare values (the =XAI.VALIDATE path).
+
+    Zero LLM — a regex is perfect here, so a model must not be used."""
+    if fmt not in FORMATS:
+        raise ValueError(
+            f"Unknown format '{fmt}'. Available: {', '.join(sorted(FORMATS))}")
+    pattern = FORMATS[fmt]
+    return [
+        v is not None and not (isinstance(v, float) and pd.isna(v))
+        and bool(pattern.fullmatch(str(v).strip()))
+        for v in values
+    ]
+
+
 def _excel_row(df: pd.DataFrame, idx_label) -> int:
     return df.index.get_loc(idx_label) + 2
 

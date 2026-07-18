@@ -40,6 +40,11 @@ from excellia.api.schemas import (
     TransformApplyRequest,
     TransformPreviewRequest,
     ValidateRequest,
+    ValuesAskRequest,
+    ValuesMapRequest,
+    ValuesSimilarityRequest,
+    ValuesSplitRequest,
+    ValuesValidateRequest,
 )
 from excellia.core import (
     anomaly,
@@ -57,7 +62,7 @@ from excellia.core import (
 from excellia.core.llm import LLMError
 from excellia.core.transform import TransformError
 
-_VERSION = "0.4.0"
+_VERSION = "0.6.0"
 
 # Files above this on-disk size take the streaming (chunked) core paths
 # instead of the in-memory ones. ~15MB of xlsx/csv is roughly where full
@@ -541,6 +546,59 @@ def kyc_dedupe_endpoint(req: KycDedupeRequest) -> dict:
     return _do_kyc_dedupe(req)
 
 
+# --- bare-value endpoints (the Excel =XAI.* formula family) -----------
+# One call per formula batch; no files involved. Deterministic ones
+# (validate, similarity) never touch the LLM.
+
+@app.post("/values/validate")
+def values_validate_endpoint(req: ValuesValidateRequest) -> dict:
+    try:
+        return {"results": validate.check_format(req.values, req.format)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/values/similarity")
+def values_similarity_endpoint(req: ValuesSimilarityRequest) -> dict:
+    if len(req.a) != len(req.b):
+        raise HTTPException(400, f"a has {len(req.a)} values but b has {len(req.b)} — "
+                                 "pass equal-length lists (pairwise comparison).")
+    return {"results": [kyc.name_similarity(x, y) for x, y in zip(req.a, req.b)]}
+
+
+@app.post("/values/map")
+def values_map_endpoint(req: ValuesMapRequest) -> dict:
+    try:
+        return {"results": transform.map_values(req.values, req.instruction)}
+    except LLMError as e:
+        raise _llm_503(e)
+
+
+@app.post("/values/split")
+def values_split_endpoint(req: ValuesSplitRequest) -> dict:
+    try:
+        return {"results": transform.split_values(req.values, req.parts),
+                "parts": req.parts}
+    except LLMError as e:
+        raise _llm_503(e)
+    except TransformError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/values/ask")
+def values_ask_endpoint(req: ValuesAskRequest) -> dict:
+    if not req.rows:
+        raise HTTPException(400, "No data rows given — select a range that includes data.")
+    try:
+        df = pd.DataFrame(req.rows, columns=req.columns)
+    except ValueError as e:
+        raise HTTPException(400, f"Rows do not match the columns: {e}")
+    try:
+        return ask.ask(df, req.question)
+    except LLMError as e:
+        raise _llm_503(e)
+
+
 # --- workspace CRUD: rulesets, recipes, history -----------------------
 
 @app.get("/rulesets")
@@ -666,6 +724,10 @@ def job_status(job_id: str) -> dict:
 
 if _WEBAPP_DIR.is_dir():
     app.mount("/app", StaticFiles(directory=str(_WEBAPP_DIR), html=True), name="webapp")
+
+_ADDIN_DIR = Path(__file__).resolve().parent.parent / "addin" / "static"
+if _ADDIN_DIR.is_dir():
+    app.mount("/addin", StaticFiles(directory=str(_ADDIN_DIR), html=True), name="addin")
 
 
 def serve() -> None:

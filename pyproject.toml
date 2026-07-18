@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "excellia"
-version = "0.4.0"
+version = "0.6.0"
 description = "Air-gapped spreadsheet validation engine exposed as an MCP server. Your data never leaves the machine."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,11 +24,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]
+addin = ["cryptography>=42"]
 
 [project.scripts]
 excellia-mcp = "excellia.mcp_server.server:main"
 excellia-api = "excellia.api.main:serve"
 excellia-agent = "excellia.local_agent.agent:main"
+excellia-addin = "excellia.addin.serve:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["excellia"]

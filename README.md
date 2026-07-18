@@ -43,6 +43,20 @@ excellia-agent check C:\data\vendors.xlsx     # one-shot
 
 Same MCP server, zero code changes between the two brains. That is the point.
 
+### Inside Excel — the `=XAI.*` formulas (Windows and Mac)
+
+```bash
+pip install excellia[addin]
+excellia-addin      # HTTPS server + certificate + printed sideload steps
+```
+
+One Office.js manifest works on Windows and Mac. Then, in any cell:
+`=XAI.VALIDATE(C2:C99,"pan")` (deterministic, zero AI) · `=XAI.MATCH(A2,B2)` ·
+`=XAI.RUN(A2:A99,"extract pin")` · `=XAI.TAG(B2:B99,"corporate?")` ·
+`=XAI.SPLIT(A2,"street|city|pin")` (spills) · `=XAI.ASK("total per city?",A1:D99)`.
+Formulas batch and cache — a recalc never re-runs the LLM on unchanged cells. The task pane
+validates/transforms/matches the selection, writing only to empty adjacent columns.
+
 ### No brain at all — the web app
 
 ```bash
@@ -109,9 +123,9 @@ Using Claude Desktop: the .xlsx file, every row, all pandas/ML processing stay l
 
 ```bash
 pip install -e .[dev]
-pytest          # 223 tests (+2 opt-in: live MCP integration, 500K-row memory budget)
+pytest          # 239 tests (+2 opt-in: live MCP integration, 500K-row memory budget)
 ```
 
 ## Status
 
-Stages A (working MCP loop, `v0.2.0-stage-a`), B (useful: ask/transform/recipes/reports/jobs/big files, `v0.3.0-stage-b`), C (domain suites: fraud, reconciliation pro, KYC, `v0.4.0-stage-c`), and the D1 web app (`v0.5.0-webapp`, at `/app`) are **done**. Remaining: web-app bulk mode + async-job wiring, then the Excel add-in with `=XAI()` formulas (D2), then ship (E). See [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.
+Stages A (working MCP loop, `v0.2.0-stage-a`), B (useful: ask/transform/recipes/reports/jobs/big files, `v0.3.0-stage-b`), C (domain suites: fraud, reconciliation pro, KYC, `v0.4.0-stage-c`), the D1 web app (`v0.5.0-webapp`), and the D2 Excel add-in v1 (`v0.6.0-addin`, `=XAI.*` formulas + task pane, Windows + Mac) are **done**. Gate D stays open on: live Excel sideload verification, async-job UI wiring, formula-cache persistence, and pane chat — then ship (E). See [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.

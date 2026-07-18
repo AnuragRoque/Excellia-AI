@@ -1,11 +1,11 @@
 # Running Excellia — every way that works today
 
-> Status: Stage D1 (`v0.5.0-webapp`). What exists: the core engine (incl. fraud scoring,
-> reconciliation pro, KYC), the core API (job queue + workspace CRUD + upload), the **web app
-> at http://127.0.0.1:8000/app/**, the thin MCP server (19 tools + resources), and the offline
-> Ollama agent. This guide lists every way to run them. Paths below are Windows-style because
-> that's the dev machine; everything also runs on Linux/macOS (swap `.venv\Scripts\` for
-> `.venv/bin/` and drop `.exe`).
+> Status: Stage D (`v0.6.0-addin`). What exists: the core engine (incl. fraud scoring,
+> reconciliation pro, KYC), the core API (job queue + workspace CRUD + upload + `/values/*`),
+> the **web app at http://127.0.0.1:8000/app/**, the **Excel add-in** (`=XAI.*` formulas +
+> task pane over HTTPS), the thin MCP server (19 tools + resources), and the offline Ollama
+> agent. Paths below are Windows-style because that's the dev machine; everything also runs on
+> Linux/macOS (swap `.venv\Scripts\` for `.venv/bin/` and drop `.exe`).
 
 The tools, whichever door you enter through:
 
@@ -176,7 +176,41 @@ Forward slashes in JSON paths save you double-backslash escaping. Optional strin
 tolerate `"null"`/`"none"`/`""` and treat them as absent (a courtesy to sloppy local LLMs
 that also helps humans).
 
-## Way 6 — Any other MCP host
+## Way 6 — The Excel add-in (Windows AND Mac)
+
+The `=XAI.*` formula family plus a task pane, one Office.js manifest for both platforms.
+Needs the HTTPS server (Office panes refuse plain HTTP):
+
+```powershell
+pip install excellia[addin]     # one-time: adds the certificate library
+excellia-addin                  # mints a localhost cert, asks before trusting it,
+                                # prints sideload steps, serves https://localhost:8443
+```
+
+Sideload (one time — `excellia-addin` prints these too):
+- **Windows**: copy `excellia/addin/static/manifest.xml` to a shared folder, add that folder
+  under Excel → Options → Trust Center → Trusted Add-in Catalogs, restart Excel,
+  Insert → My Add-ins → Shared Folder → Excellia.
+- **macOS**: copy `manifest.xml` to `~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/`,
+  restart Excel, Insert → My Add-ins → Excellia.
+
+Then in any cell:
+
+```
+=XAI.VALIDATE(C2:C99, "pan")        deterministic format check — zero AI
+=XAI.MATCH(A2, B2)                  KYC name similarity 0–100
+=XAI.RUN(A2:A99, "extract pin")     per-cell AI transform (needs Ollama)
+=XAI.TAG(B2:B99, "corporate?")      Yes/No classification (needs Ollama)
+=XAI.SPLIT(A2, "street|city|pin")   spills parts across columns (needs Ollama)
+=XAI.ASK("total per city?", A1:D99) answer computed from the range, never invented
+```
+
+Formulas batch into one API call per calc pass and cache per (value, prompt) — recalcs don't
+re-run the LLM. The task pane (Excellia button, Home tab) does validate/transform/name-match on
+the selection, writing only to an empty adjacent column. Air-gap caveat: Office.js itself loads
+from Microsoft's CDN on first use and is then cached by Office.
+
+## Way 7 — Any other MCP host
 
 Any MCP-capable host (Cursor, Windsurf, VS Code MCP, a raw stdio client, …) can use the
 server: configure a **stdio** server whose command is the absolute path to
@@ -192,7 +226,7 @@ $env:EXCELLIA_RUN_MCP_IT = "1"; pytest tests/test_mcp_integration.py -v
 ## Running the tests
 
 ```powershell
-pytest                                    # 223 tests, fast, no network, no Ollama needed
+pytest                                    # 239 tests, fast, no network, no Ollama needed
 $env:EXCELLIA_RUN_MCP_IT = "1"; pytest    # + the live MCP stdio round-trip
 $env:EXCELLIA_BIG = "1"; pytest           # + the 500K-row memory-budget test (~90s)
 ```
@@ -209,7 +243,8 @@ $env:EXCELLIA_BIG = "1"; pytest           # + the 500K-row memory-budget test (~
 
 ## What you can't do yet (so you don't go looking)
 
-No Excel add-in / `=XAI()` formulas yet (Stage D2), no bulk multi-file mode in the web app,
-and no OCR (deliberately deferred optional extra). Everything else — validation, anomalies,
-ask, transform, reports, fraud, reconciliation profiles, KYC, and the web UI — is live.
+No chat inside the Excel task pane yet (use the web app's Ask view), no bulk multi-file mode
+in the web app, formula cache doesn't survive closing the workbook, and no OCR (deliberately
+deferred optional extra). Everything else — validation, anomalies, ask, transform, reports,
+fraud, reconciliation profiles, KYC, the web UI, and the `=XAI.*` formulas — is live.
 Status in [`EXCELLIA_FEATURES.md`](../EXCELLIA_FEATURES.md) §1.

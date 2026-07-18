@@ -108,6 +108,50 @@ def _llm_map(df: pd.DataFrame, column: str, into: str, instruction: str,
     return df
 
 
+def map_values(values: list, instruction: str, llm: Ollama | None = None) -> list[str]:
+    """Per-value LLM transform for bare cell values (the =XAI.RUN/TAG path).
+
+    Identical inputs are computed once (threaded); a parse failure yields
+    "" for that value — never an exception mid-batch."""
+    llm = llm or Ollama()
+    df = pd.DataFrame({"v": ["" if v is None else str(v) for v in values]})
+    out = _llm_map(df, column="v", into="out", instruction=instruction, llm=llm)
+    return out["out"].tolist()
+
+
+def split_values(values: list, parts: list[str],
+                 llm: Ollama | None = None) -> list[list[str]]:
+    """Split each value into named parts (the =XAI.SPLIT path).
+
+    Strict-JSON contract per distinct value: {"parts": [...]} padded or
+    truncated to len(parts); parse failure -> all-empty parts for that value."""
+    if not parts:
+        raise TransformError('split_values needs part names, e.g. ["street", "city", "pin"]')
+    llm = llm or Ollama()
+    distinct = list(dict.fromkeys("" if v is None else str(v) for v in values))
+
+    def one(value: str) -> list[str]:
+        if not value.strip():
+            return [""] * len(parts)
+        reply = llm.json_call(
+            f"Value: {json.dumps(value)}\nSplit it into these parts, in order: "
+            f"{json.dumps(parts)}\n"
+            'Reply with ONLY JSON: {"parts": ["...", ...]} — one string per part, '
+            '"" when a part is absent.',
+            system="You split one spreadsheet cell into named parts. Never invent "
+                   "content that is not in the value.",
+        )
+        got = reply.get("parts")
+        if reply.get("reason") == "parse_failed" or not isinstance(got, list):
+            return [""] * len(parts)
+        got = ["" if p is None else str(p) for p in got]
+        return (got + [""] * len(parts))[: len(parts)]
+
+    with ThreadPoolExecutor(max_workers=_LLM_MAP_WORKERS) as pool:
+        mapped = dict(zip(distinct, pool.map(one, distinct)))
+    return [mapped["" if v is None else str(v)] for v in values]
+
+
 def apply(df: pd.DataFrame, recipe: dict[str, Any], replace: bool = False,
           llm: Ollama | None = None) -> pd.DataFrame:
     """Execute a recipe on a DataFrame, returning a NEW DataFrame.

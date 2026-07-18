@@ -1,0 +1,64 @@
+{
+  "functions": [
+    {
+      "id": "RUN",
+      "name": "RUN",
+      "description": "AI-transform each cell with an instruction (local LLM). Example: =XAI.RUN(A2:A50, \"extract the pin code\")",
+      "parameters": [
+        { "name": "values", "description": "cell or range to transform", "type": "any", "dimensionality": "matrix" },
+        { "name": "instruction", "description": "what to produce per cell", "type": "string" }
+      ],
+      "result": { "dimensionality": "matrix" }
+    },
+    {
+      "id": "TAG",
+      "name": "TAG",
+      "description": "Classify each cell Yes/No against a criterion (local LLM). Example: =XAI.TAG(B2:B500, \"is this a corporate customer?\")",
+      "parameters": [
+        { "name": "values", "description": "cell or range to classify", "type": "any", "dimensionality": "matrix" },
+        { "name": "criteria", "description": "the yes/no question per cell", "type": "string" }
+      ],
+      "result": { "dimensionality": "matrix" }
+    },
+    {
+      "id": "SPLIT",
+      "name": "SPLIT",
+      "description": "Split each cell into named parts; spills columns with a header row (local LLM). Example: =XAI.SPLIT(A2:A50, \"street | city | pin\")",
+      "parameters": [
+        { "name": "values", "description": "cell or range to split", "type": "any", "dimensionality": "matrix" },
+        { "name": "parts", "description": "part names separated by |", "type": "string" }
+      ],
+      "result": { "dimensionality": "matrix" }
+    },
+    {
+      "id": "ASK",
+      "name": "ASK",
+      "description": "Ask a question about a range; the answer's numbers come from a computed evidence table, never invented. First row of the range must be headers. Example: =XAI.ASK(\"total amount per city?\", A1:D200)",
+      "parameters": [
+        { "name": "question", "description": "the question", "type": "string" },
+        { "name": "data", "description": "range including the header row", "type": "any", "dimensionality": "matrix" }
+      ],
+      "result": { "dimensionality": "scalar" }
+    },
+    {
+      "id": "VALIDATE",
+      "name": "VALIDATE",
+      "description": "Deterministic format check per cell — regex, zero AI. Formats: gst, pan, aadhaar, email, phone, ifsc. Example: =XAI.VALIDATE(C2:C100, \"pan\")",
+      "parameters": [
+        { "name": "values", "description": "cell or range to check", "type": "any", "dimensionality": "matrix" },
+        { "name": "format", "description": "gst | pan | aadhaar | email | phone | ifsc", "type": "string" }
+      ],
+      "result": { "dimensionality": "matrix" }
+    },
+    {
+      "id": "MATCH",
+      "name": "MATCH",
+      "description": "KYC name similarity 0-100 between two cells or two equal ranges, deterministic. Example: =XAI.MATCH(A2, B2)",
+      "parameters": [
+        { "name": "a", "description": "first name(s)", "type": "any", "dimensionality": "matrix" },
+        { "name": "b", "description": "second name(s)", "type": "any", "dimensionality": "matrix" }
+      ],
+      "result": { "dimensionality": "matrix" }
+    }
+  ]
+}

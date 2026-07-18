@@ -10,11 +10,13 @@
 **Repo:** `11 Excellia Core/excellia_codebase`
 **Legacy source (read-only reference):** `../05 Excellia AI/Excellia-AI-Demo` (Flask monolith: `routes.py`, `routes2.py`)
 **Concept docs (the requirements this file absorbs):** `project concept/` — add-in concept, KYC spec, Limestone spec, Excellia demo knowledge
-**Last updated:** 2026-07-17 (Stages B, C, AND the D1 web app landed the same day. D1: static
-single-page app served by the core API at `/app` — Quality/Ask/Transform/Reconcile/Fraud/KYC/
-Jobs views, drag-drop upload, zero logic in the web layer (test-enforced), zero build toolchain.
-Stack decision revised: no React build chain, no Flask — see §11.5. 223 tests passing.
-Remaining in Stage D: bulk mode, async-job wiring in the UI, and the Excel add-in D2.)
+**Last updated:** 2026-07-17 (Stages B, C, D1 web app, AND D2 add-in v1 all landed. D2: Office.js
+add-in (one manifest, Windows + Mac), `=XAI.RUN/SPLIT/TAG/ASK/VALIDATE/MATCH` custom functions
+with client batching + in-session caching, lean task pane (validate/transform/name-match,
+non-destructive adjacent-column writes), NO Node proxy — `excellia-addin` serves everything over
+HTTPS with a consent-trusted localhost cert. New `/values/*` API endpoints. 239 tests passing.
+Gate D stays OPEN: sideload into real Excel (manual), async-job UI wiring, cache persistence,
+pane chat. See §3 D1/D2 for exact checkbox state.)
 
 ---
 
@@ -128,11 +130,13 @@ to finish binding and every tool call hangs. `tests/test_mcp_integration.py` gua
 - [x] MCP — 8 new tools (19 total) + `profile://` resource; server still zero pandas
 - [ ] OCR (`excellia[ocr]`, Tesseract-only) — deliberately deferred, stays optional-later
 
-### ⏭ NEXT — Stage D (current: D1 web app v1 ✅ shipped, D2 add-in next), then E
+### ⏭ NEXT — finish Stage D's gate, then E
 
-- [~] Stage D — FACES: **D1 web app v1 shipped** (static SPA at `/app`, 7 views, upload door —
-       see §3 D1 for what's in and the two deferrals: bulk mode, async-job UI wiring).
-       **D2 Excel add-in remains**: local HTTPS proxy + task pane + `=XAI()` custom functions.
+- [~] Stage D — FACES: **D1 web app v1 ✅** (static SPA at `/app`, 7 views, upload door) and
+       **D2 add-in v1 ✅** (`=XAI.*` formulas + lean task pane over HTTPS, Windows + Mac, no Node).
+       Gate D still open on: live Excel sideload check (manual) · async-job wiring in both faces ·
+       formula cache persistence across file reopen · pane chat + categorise/summarise ops ·
+       web-app bulk mode. Detail in §3.
 - [ ] Stage E — SHIP: polish, video, README, post, PyPI
 
 ---
@@ -468,51 +472,62 @@ the web layer — test-enforced):
 - [x] Auth: **none in v1** (localhost, single analyst); uploads land in the workspace, originals
       never touched
 
-#### D2. Excel add-in (`addin/`) — the two data-manipulation modes you specified
+#### D2. Excel add-in (`excellia/addin/`) — ✅ v1 SHIPPED 2026-07-17 (formula core + lean pane; chat next)
 
-Architecture (from the proven add-in concept doc): Office.js task pane + **local HTTPS proxy**
-(Node/Express + `office-addin-dev-certs` + `http-proxy-middleware`) because Office panes are HTTPS and
-localhost APIs are HTTP (mixed-content wall). **One change from the old concept: the proxy forwards to
-the CORE API (port 8000), never straight to Ollama** — so every feature (validate, transform, ask, match)
-arrives in Excel automatically, and logic keeps living in exactly one place.
+Architecture — **upgraded from the concept doc**: Office.js (the only cross-platform route — Windows,
+Mac, Excel on the web, one manifest), and the Node/Express HTTPS proxy is GONE. `excellia-addin`
+mints a self-signed localhost certificate (pure Python, `pip install excellia[addin]`), offers to
+trust it with explicit consent, and serves the SAME FastAPI app (API + web app + add-in files) over
+**https://localhost:8443** — same origin, no proxy, no toolchain. New `/values/*` endpoints are the
+formula door: validate/similarity (deterministic), map/split/ask (LLM via core). Honest naming note:
+Excel custom functions require a namespace, so the general formula is `=XAI.RUN(...)`, not bare `=XAI()`.
 
-**Mode 1 — Formula mode: the `=XAI()` family (Excel custom functions):**
+**Mode 1 — Formula mode: the `=XAI.*` family (Excel custom functions):**
 
-- [ ] `=XAI(range, prompt)` — the general one: per-cell/per-row AI transform, returns value(s)
-      (e.g. `=XAI(A2, "extract the pin code")`)
-- [ ] `=XAI.SPLIT(range, "street | city | state | pin")` — **split address** (and anything else) into
-      parts; returns a dynamic **spilled array** across adjacent columns with a header row
-- [ ] `=XAI.TAG(range, "criteria for taggable")` — **mark taggable / non-taggable** (binary or labelled
-      classification per cell; e.g. `=XAI.TAG(B2:B500, "is this a corporate customer?")` → Yes/No spill)
-- [ ] `=XAI.ASK("question about the used range or a range")` — one-cell answer, backed by `ask`'s
-      evidence pipeline (never invents; the evidence table is one click away in the task pane)
-- [ ] `=XAI.VALIDATE(range, "pan|gst|email|ifsc|aadhaar|phone")` — deterministic regex verdicts,
-      **zero LLM** (the IFSC-validator lesson: never use a model where a regex is perfect)
-- [ ] `=XAI.MATCH(a, b)` — KYC name-similarity score between two cells/ranges
-- [ ] Engineering rules for formula mode:
-  - custom functions batch: coalesce all pending calls in a calc pass into ONE API request (per function+prompt)
-  - **cache** keyed by `(cell value, prompt, model)` in workbook settings + workspace cache — a recalc
-    or file reopen must NOT re-run the LLM on unchanged cells
-  - volatile off; cancellation supported; errors surface as `#XAI!` with the reason in a comment
-  - long batches hand off to a task-pane job with progress instead of freezing calc
+- [x] `=XAI.RUN(range, prompt)` — the general per-cell AI transform (`=XAI.RUN(A2,"extract the pin code")`)
+- [x] `=XAI.SPLIT(range, "street | city | pin")` — split into parts; returns a **spilled array**
+      with a header row (strict-JSON contract per distinct value; parse failure → blank parts)
+- [x] `=XAI.TAG(range, "criteria")` — Yes/No classification per cell
+- [x] `=XAI.ASK("question", A1:D200)` — one-cell answer backed by `ask`'s evidence pipeline
+      (the range's first row = headers; full evidence table lives in the web app / task pane later)
+- [x] `=XAI.VALIDATE(range, "pan|gst|email|ifsc|aadhaar|phone")` — deterministic regex verdicts,
+      **zero LLM** (`validate.check_format` in core)
+- [x] `=XAI.MATCH(a, b)` — KYC name-similarity 0–100 between cells/equal ranges (broadcasts 1-vs-N)
+- [~] Engineering rules for formula mode:
+  - [x] batching: cells coalesce into ONE API request per (function, prompt) per 80ms window
+  - [~] **cache** keyed by (value, prompt): in-memory — survives recalcs within a session; the
+        workbook-settings + workspace persistence layer (survives file reopen) is still to do
+  - [x] volatile off (custom functions are non-volatile by default); errors surface as `#VALUE!`
+        with the API's instructive message (Excel doesn't allow custom `#XAI!` codes)
+  - [ ] cancellation + long-batch handoff to a task-pane job — deferred
+- [ ] Live-Excel verification: sideloading is inherently a manual user step (like Claude Desktop);
+      the mechanical layer (manifest↔metadata↔runtime consistency, TLS serving, every endpoint)
+      is test- and smoke-verified
 
-**Mode 2 — Task-pane copilot (bulk, the old add-in concept upgraded):**
+**Mode 2 — Task-pane copilot (v1 lean; the owner's call: core first, chat later):**
 
-- [ ] Smart range selection (`getUsedRangeOrNullObject` intersection — never send a million empty rows)
-- [ ] Operations: Chat (with data context) · Extract/Transform · Categorise · Summarise · Keywords ·
-      Simplify JSON · Validate formats · Name match — all mapped to core API endpoints, not local prompts
-- [ ] Processing modes: **Combined** (one batched call, JSON-array contract with line-split fallback) and
-      **Per-row** (live typewriter updates, row-N-of-M status) — user-selectable, as designed
-- [ ] **Non-destructive always:** writes to adjacent empty column / appended rows; AI-written cells get
-      the visual accent (blue + italic header); explicit "replace" requires a confirm dialog
-- [ ] Preview→confirm for anything touching > 1 column (reuses `transform_preview`)
-- [ ] Model & connection status pill (Ollama up? API up? which model?)
-- [ ] Abort button (AbortController) — the old concept's known gap, fixed
-- [ ] Manifest + sideload instructions; later: AppSource submission (much later)
+- [~] Range handling: uses the current selection with explicit shape checks (single column /
+      two columns); `getUsedRange` intersection guard still to add
+- [~] Operations shipped: **Validate formats** · **Transform selection (preview → apply)** ·
+      **Name match** — all mapped to `/values/*` core endpoints, zero local prompts.
+      Deferred: Chat (next milestone, by explicit owner decision) · Categorise · Summarise ·
+      Keywords · Simplify JSON
+- [ ] Combined vs Per-row processing modes with live progress — deferred (single batched mode v1)
+- [x] **Non-destructive always:** writes ONLY to an empty adjacent column (refuses otherwise,
+      instructively); AI-written cells get the visual accent (blue + italic) + bold header
+- [x] Preview→confirm for transforms (sample of distinct values shown before apply)
+- [~] Connection status pill (API version shown; Ollama/model detail still to add)
+- [ ] Abort button (AbortController) — deferred
+- [x] Manifest + sideload instructions for **Windows (shared-folder catalog)** and **macOS (wef
+      folder)** printed by `excellia-addin` and in docs/RUNNING.md; AppSource much later
 
-**GATE D:** web app runs a 500K-row file through checks→transform→report without a freeze ✔ ·
-`=XAI.SPLIT` spills a parsed address; recalc hits cache, not the LLM ✔ · task pane batch-categorises a
-column non-destructively with live progress ✔ · Excel/web app touched ZERO new logic in core (diff proves it) ✔
+**GATE D — OPEN (v1 of both faces shipped 2026-07-17, tagged `v0.5.0-webapp` + `v0.6.0-addin`; the
+gate's remaining teeth):** web app runs a 500K-row file through checks→transform→report without a
+freeze — *needs the async-job UI wiring + a live big-file run* · `=XAI.SPLIT` spills ✔ and recalc
+hits the in-session cache ✔ — *file-reopen cache persistence still to do* · task pane transforms a
+column non-destructively ✔ — *live progress + categorise op deferred* · faces contain ZERO logic ✔
+(test-enforced for both; the `/values/*` endpoints they call live in API→core where they belong) ·
+*plus the inherently manual step: sideload into real Excel on Windows and Mac and watch it work*
 
 ### Stage E — SHIP
 
@@ -638,7 +653,10 @@ Resources: `ruleset://<name>` · `recipe://<name>` · `profile://<name>` · `fra
 1. FastMCP over raw MCP SDK; stdio transport (no ports for the AI door)
 2. Excel row numbers in every user-facing row reference
 3. LLM assists, deterministic code decides; regex beats model where regex is perfect
-4. The add-in proxy forwards to the core API, not to Ollama (changed from the legacy concept — on purpose)
+4. ~~The add-in proxy forwards to the core API~~ **Revised 2026-07-17:** there is NO proxy at all —
+   `excellia-addin` serves the same FastAPI app over HTTPS (self-signed localhost cert, consent-gated
+   trust) so the pane, the formulas, and the API share one origin. The 2026-07-12 half of the
+   decision stands: nothing in Excel ever talks straight to Ollama
 5. ~~React for the web app~~ **Revised 2026-07-17 (owner call):** the web app is a static SPA
    served by the core API at `/app` — no Flask (legacy pattern), no Node toolchain (fights
    pip-install-and-go). Vanilla JS everywhere; graduate to React only if the UI outgrows it
@@ -657,7 +675,8 @@ of the interface: name the problem, name the fix, name the alternative tool.
 
 ---
 
-*End of checkpoint. Stages A, B, and C are done and tagged (`v0.2.0-stage-a`, `v0.3.0-stage-b`,
-`v0.4.0-stage-c`) — the whole engine, API, and 19-tool MCP surface exist. Build Stage D next: the
-web app first (a pure client of the existing API — governing rule 1: humans click → HTTP, never MCP),
-then the Excel add-in. Update checkboxes as you land work — this file is the memory.*
+*End of checkpoint. A, B, C done and gated; D1+D2 v1 shipped (`v0.5.0-webapp`, `v0.6.0-addin`) with
+Gate D open on the items listed in §1/§3 — the highest-leverage next step is the MANUAL one: sideload
+the add-in into real Excel (`excellia-addin` prints the steps) and paste the Claude Desktop config,
+then close the gate's automation items (async-job UI, cache persistence, pane chat) and move to
+Stage E shipping. Update checkboxes as you land work — this file is the memory.*

@@ -183,6 +183,32 @@ class KycMatchRequest(_SheetMixin):
         return _normalise_optional(v) if isinstance(v, str) else v
 
 
+class ValuesValidateRequest(BaseModel):
+    values: list
+    format: str
+
+
+class ValuesSimilarityRequest(BaseModel):
+    a: list
+    b: list
+
+
+class ValuesMapRequest(BaseModel):
+    values: list = Field(max_length=2000)
+    instruction: str
+
+
+class ValuesSplitRequest(BaseModel):
+    values: list = Field(max_length=2000)
+    parts: list[str]
+
+
+class ValuesAskRequest(BaseModel):
+    columns: list[str]
+    rows: list[list]
+    question: str
+
+
 class KycDedupeRequest(_SheetMixin):
     file: str
     columns: list[str]
