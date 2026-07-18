@@ -12,9 +12,14 @@ intelligently, so treat them as part of the interface.
 from __future__ import annotations
 
 import os
+import re
+import time
+from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from excellia.api import jobs
 from excellia.api.schemas import (
@@ -122,6 +127,37 @@ def _llm_503(e: LLMError) -> HTTPException:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": _VERSION}
+
+
+# --- web app (Stage D): static files served by this same process ------
+# The web layer is a pure HTTP client of the endpoints below — it owns
+# zero logic. No second server, no build toolchain: pip ships it.
+
+_WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse("/app/")
+
+
+@app.post("/upload")
+async def upload_endpoint(file: UploadFile) -> dict:
+    """Save a browser-uploaded spreadsheet into the workspace uploads dir
+    and return its path — every other endpoint then takes that path."""
+    name = os.path.basename(file.filename or "upload")
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in ingest.SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            400, f"Unsupported file type '{ext}'. Supported: "
+                 f"{', '.join(ingest.SUPPORTED_EXTENSIONS)}")
+    safe = re.sub(r"[^\w.\-]", "_", name)
+    dest_dir = store.home() / "uploads"
+    dest_dir.mkdir(exist_ok=True)
+    dest = dest_dir / f"{int(time.time())}_{safe}"
+    dest.write_bytes(await file.read())
+    store.record("upload", file=str(dest), summary={"bytes": dest.stat().st_size})
+    return {"path": str(dest), "name": name}
 
 
 # --- the four pillars (Stage A surface, unchanged behaviour) ----------
@@ -626,6 +662,10 @@ def job_list() -> dict:
 @app.get("/jobs/{job_id}")
 def job_status(job_id: str) -> dict:
     return jobs.status(job_id)
+
+
+if _WEBAPP_DIR.is_dir():
+    app.mount("/app", StaticFiles(directory=str(_WEBAPP_DIR), html=True), name="webapp")
 
 
 def serve() -> None:

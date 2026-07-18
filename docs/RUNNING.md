@@ -1,10 +1,11 @@
 # Running Excellia — every way that works today
 
-> Status: Stage C (`v0.4.0-stage-c`). What exists: the core engine (incl. fraud scoring,
-> reconciliation pro, KYC), the core API (job queue + workspace CRUD), the thin MCP server
-> (19 tools + resources), and the offline Ollama agent. This guide lists every way to run them.
-> Paths below are Windows-style because that's the dev machine; everything also runs on
-> Linux/macOS (swap `.venv\Scripts\` for `.venv/bin/` and drop `.exe`).
+> Status: Stage D1 (`v0.5.0-webapp`). What exists: the core engine (incl. fraud scoring,
+> reconciliation pro, KYC), the core API (job queue + workspace CRUD + upload), the **web app
+> at http://127.0.0.1:8000/app/**, the thin MCP server (19 tools + resources), and the offline
+> Ollama agent. This guide lists every way to run them. Paths below are Windows-style because
+> that's the dev machine; everything also runs on Linux/macOS (swap `.venv\Scripts\` for
+> `.venv/bin/` and drop `.exe`).
 
 The tools, whichever door you enter through:
 
@@ -117,7 +118,22 @@ excellia-agent check examples\messy_vendors.xlsx     # one-shot check
 
 Same unchanged `server.py` as Ways 1–2. That's the thesis.
 
-## Way 4 — Core API directly (no AI at all)
+## Way 4 — The web app (point and click)
+
+The API serves a full web UI from the same process — no second server, no build step:
+
+```powershell
+excellia-api        # then open http://127.0.0.1:8000/app/
+```
+
+Drag-drop a spreadsheet (or paste a local path) in the sidebar, then use the views:
+**Quality** (profile/validate/anomalies + health-score report) · **Ask the data** (answer +
+evidence + query plan) · **Transform** (preview → confirm → recipes) · **Reconcile** (profiles,
+match-level tabs, 5-sheet report) · **Fraud** (train/score/evaluate) · **KYC** (name match,
+dedupe) · **Jobs & History**. The web layer owns zero logic — every button is one HTTP call to
+the endpoints below.
+
+## Way 5 — Core API directly (no AI at all)
 
 For scripts, curl, or wiring up your own client:
 
@@ -160,7 +176,7 @@ Forward slashes in JSON paths save you double-backslash escaping. Optional strin
 tolerate `"null"`/`"none"`/`""` and treat them as absent (a courtesy to sloppy local LLMs
 that also helps humans).
 
-## Way 5 — Any other MCP host
+## Way 6 — Any other MCP host
 
 Any MCP-capable host (Cursor, Windsurf, VS Code MCP, a raw stdio client, …) can use the
 server: configure a **stdio** server whose command is the absolute path to
@@ -176,7 +192,7 @@ $env:EXCELLIA_RUN_MCP_IT = "1"; pytest tests/test_mcp_integration.py -v
 ## Running the tests
 
 ```powershell
-pytest                                    # 218 tests, fast, no network, no Ollama needed
+pytest                                    # 223 tests, fast, no network, no Ollama needed
 $env:EXCELLIA_RUN_MCP_IT = "1"; pytest    # + the live MCP stdio round-trip
 $env:EXCELLIA_BIG = "1"; pytest           # + the 500K-row memory-budget test (~90s)
 ```
@@ -193,7 +209,7 @@ $env:EXCELLIA_BIG = "1"; pytest           # + the 500K-row memory-budget test (~
 
 ## What you can't do yet (so you don't go looking)
 
-No web app, no Excel add-in / `=XAI()` formulas (that's Stage D), and no OCR (deliberately
-deferred optional extra). Everything else — validation, anomalies, ask, transform, reports,
-fraud, reconciliation profiles, KYC — is live. Status in
-[`EXCELLIA_FEATURES.md`](../EXCELLIA_FEATURES.md) §1.
+No Excel add-in / `=XAI()` formulas yet (Stage D2), no bulk multi-file mode in the web app,
+and no OCR (deliberately deferred optional extra). Everything else — validation, anomalies,
+ask, transform, reports, fraud, reconciliation profiles, KYC, and the web UI — is live.
+Status in [`EXCELLIA_FEATURES.md`](../EXCELLIA_FEATURES.md) §1.

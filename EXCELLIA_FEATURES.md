@@ -10,10 +10,11 @@
 **Repo:** `11 Excellia Core/excellia_codebase`
 **Legacy source (read-only reference):** `../05 Excellia AI/Excellia-AI-Demo` (Flask monolith: `routes.py`, `routes2.py`)
 **Concept docs (the requirements this file absorbs):** `project concept/` — add-in concept, KYC spec, Limestone spec, Excellia demo knowledge
-**Last updated:** 2026-07-17 (Stages B AND C landed the same day. Stage C: fraud train/score/
-evaluate with ModelCards + leakage detection, reconciliation pro with L1-L3 match levels /
-variance / profiles / 5-sheet report, KYC hybrid name matching + entity dedupe — 19 MCP tools,
-3 resource kinds, 218 tests passing. Next: Stage D faces — web app + Excel add-in.)
+**Last updated:** 2026-07-17 (Stages B, C, AND the D1 web app landed the same day. D1: static
+single-page app served by the core API at `/app` — Quality/Ask/Transform/Reconcile/Fraud/KYC/
+Jobs views, drag-drop upload, zero logic in the web layer (test-enforced), zero build toolchain.
+Stack decision revised: no React build chain, no Flask — see §11.5. 223 tests passing.
+Remaining in Stage D: bulk mode, async-job wiring in the UI, and the Excel add-in D2.)
 
 ---
 
@@ -127,9 +128,11 @@ to finish binding and every tool call hangs. `tests/test_mcp_integration.py` gua
 - [x] MCP — 8 new tools (19 total) + `profile://` resource; server still zero pandas
 - [ ] OCR (`excellia[ocr]`, Tesseract-only) — deliberately deferred, stays optional-later
 
-### ⏭ NEXT — Stage D (current), then E
+### ⏭ NEXT — Stage D (current: D1 web app v1 ✅ shipped, D2 add-in next), then E
 
-- [ ] Stage D — FACES: web app (big/bulk files), Excel add-in (task pane + `=XAI()` formula mode)
+- [~] Stage D — FACES: **D1 web app v1 shipped** (static SPA at `/app`, 7 views, upload door —
+       see §3 D1 for what's in and the two deferrals: bulk mode, async-job UI wiring).
+       **D2 Excel add-in remains**: local HTTPS proxy + task pane + `=XAI()` custom functions.
 - [ ] Stage E — SHIP: polish, video, README, post, PyPI
 
 ---
@@ -433,27 +436,37 @@ every output carries reasons ✔ · OCR remains deliberately unbuilt (optional `
 
 ### Stage D — FACES (web app + Excel add-in) — *current stage*
 
-#### D1. Web app (`webapp/`) — the big-file / bulk door
+#### D1. Web app (`excellia/webapp/`) — the big-file / bulk door — ✅ v1 SHIPPED 2026-07-17
 
-The legacy Flask GUI's replacement, but as a **pure client of the core API** (nothing computes in the web layer):
+The legacy Flask GUI's replacement, but as a **pure client of the core API** (nothing computes in
+the web layer — test-enforced):
 
-- [ ] Stack: **React + Vite + TypeScript** (the vanilla-JS era ends here; the add-in stays vanilla)
-- [ ] Views:
-  - [ ] **Upload & Preview** — drag-drop, sheet picker, first-50 preview, header redefine, quick clean
-        buttons (all `POST /clean`)
-  - [ ] **Quality dashboard** — run checks, health score with breakdown, issue explorer (filter by
-        column/rule/severity), download highlighted report
-  - [ ] **Transform studio** — instruction box → preview diff (sample) → confirm → job progress →
-        recipe save/load (the analyst-in-the-loop UI for `transform`)
-  - [ ] **Chat with data** — `ask` panel showing answer + evidence table + plan (trust through glass)
-  - [ ] **Reconciliation** — two-file wizard, profile picker/editor, results in four tabs, report download
-  - [ ] **Fraud** — train wizard (pick label column → metrics card) · score view (risk bands, top factors,
-        sortable) · evaluate view
-  - [ ] **KYC** — name-match & dedupe runners with verdict tables
-  - [ ] **Bulk mode** — N files × one ruleset/recipe → job matrix, roll-up summary, zip of reports
-  - [ ] **Jobs & History** — live progress (poll `GET /jobs/{id}`), audit-trail browser fed by `history.jsonl`
-- [ ] Big-file UX: chunked upload; server-side we already stream (B2); UI never freezes (jobs from B3)
-- [ ] Auth: **none in v1** (localhost, single analyst) — session isolation only (per-session upload dirs, no more global-state collisions like the legacy app)
+- [x] Stack: **static single-page app served by the core API itself** at `/app` — vanilla JS,
+      zero build toolchain, zero second server, same-origin (no CORS), pip ships it.
+      **Changed 2026-07-17 from React+Vite+TS** (owner prompted "react?? flask can't do?"):
+      Flask was rejected because server-rendered templates are exactly the legacy monolith
+      pattern Phase 1 escaped; React's toolchain was dropped because a Node build step fights
+      the "pip install and go" thesis. Graduate to React only if the UI outgrows vanilla.
+- [x] Views (v1):
+  - [x] **Upload & file picking** — drag-drop / click-to-pick via `POST /upload` (multipart, saved
+        to workspace `uploads/`), or paste a local path; selection persists across visits
+  - [x] **Quality** — profile + validate (ruleset picker fed by `GET /rulesets`) + anomalies with
+        severity badges; health score with breakdown; highlighted-report export (path shown —
+        the file is already on the user's disk, that's the point of local-first)
+  - [x] **Transform studio** — instruction → preview before/after sample + recipe JSON → confirm
+        apply (replace checkbox, save-as-recipe) → saved-recipe replay
+  - [x] **Ask the data** — answer + evidence table + the query plan that actually ran (trust through glass)
+  - [x] **Reconciliation** — file B + keys/tolerance/fuzzy-keys or saved profile, profile save,
+        four bucket tabs with match-level badges, 5-sheet report path
+  - [x] **Fraud** — train (label column → metrics card + top features) · score (bands, per-row top
+        factors) · evaluate (holdout vs CV side by side)
+  - [x] **KYC** — name matching (pairwise/cross, LLM-verify toggle) & entity dedupe with merge log
+  - [ ] **Bulk mode** — N files × one ruleset/recipe → job matrix, roll-up summary (deferred)
+  - [x] **Jobs & History** — polling job table + audit-trail browser fed by `history.jsonl`
+- [~] Big-file UX: server side streams (B2) and the job queue exists (B3); the UI runs sync calls
+      v1 — wiring the async_ path into the views is a follow-up
+- [x] Auth: **none in v1** (localhost, single analyst); uploads land in the workspace, originals
+      never touched
 
 #### D2. Excel add-in (`addin/`) — the two data-manipulation modes you specified
 
@@ -626,7 +639,9 @@ Resources: `ruleset://<name>` · `recipe://<name>` · `profile://<name>` · `fra
 2. Excel row numbers in every user-facing row reference
 3. LLM assists, deterministic code decides; regex beats model where regex is perfect
 4. The add-in proxy forwards to the core API, not to Ollama (changed from the legacy concept — on purpose)
-5. React for the web app; vanilla JS stays only in the add-in pane
+5. ~~React for the web app~~ **Revised 2026-07-17 (owner call):** the web app is a static SPA
+   served by the core API at `/app` — no Flask (legacy pattern), no Node toolchain (fights
+   pip-install-and-go). Vanilla JS everywhere; graduate to React only if the UI outgrows it
 6. GradientBoosting default for fraud (RandomForest option); ModelCards mandatory
 7. Tesseract-only OCR by default; cloud OCR = loud opt-in extra
 8. Job queue lives in the API layer; core stays synchronous and pure

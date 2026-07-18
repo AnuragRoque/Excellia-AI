@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Excellia — local spreadsheet intelligence</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128202;</text></svg>">
+</head>
+<body>
+  <aside id="sidebar">
+    <h1>Excellia</h1>
+    <p class="tag">air-gapped spreadsheet intelligence</p>
+
+    <div id="filebox">
+      <label class="drop" id="drop">
+        <input type="file" id="fileinput" accept=".xlsx,.xlsm,.xls,.csv,.tsv" hidden>
+        <span id="droplabel">Drop a spreadsheet here<br>or click to pick one</span>
+      </label>
+      <div class="or">or use a path on this machine</div>
+      <input type="text" id="filepath" placeholder="C:\data\vendors.xlsx" spellcheck="false">
+      <div id="currentfile" class="current"></div>
+    </div>
+
+    <nav id="nav"></nav>
+    <div id="status" class="status">checking API…</div>
+  </aside>
+
+  <main id="view"></main>
+  <div id="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

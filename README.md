@@ -43,8 +43,19 @@ excellia-agent check C:\data\vendors.xlsx     # one-shot
 
 Same MCP server, zero code changes between the two brains. That is the point.
 
-**Every way to run it** — Claude Desktop, Claude Code, offline agent, raw HTTP API, other MCP
-hosts — with exact commands and troubleshooting: [docs/RUNNING.md](docs/RUNNING.md).
+### No brain at all — the web app
+
+```bash
+excellia-api        # then open http://127.0.0.1:8000/app/
+```
+
+The core API serves a full point-and-click UI from the same process: drag-drop a file, run
+quality checks, chat with the data (evidence tables included), preview-and-apply transforms,
+reconcile two files, train/score fraud models, KYC matching — all seven views are plain HTTP
+calls to the same endpoints the AI tools use. No Node, no build step, no second server.
+
+**Every way to run it** — Claude Desktop, Claude Code, offline agent, the web app, raw HTTP API,
+other MCP hosts — with exact commands and troubleshooting: [docs/RUNNING.md](docs/RUNNING.md).
 
 ## Nineteen tools
 
@@ -98,9 +109,9 @@ Using Claude Desktop: the .xlsx file, every row, all pandas/ML processing stay l
 
 ```bash
 pip install -e .[dev]
-pytest          # 218 tests (+2 opt-in: live MCP integration, 500K-row memory budget)
+pytest          # 223 tests (+2 opt-in: live MCP integration, 500K-row memory budget)
 ```
 
 ## Status
 
-Stages A (working MCP loop, `v0.2.0-stage-a`), B (useful: ask/transform/recipes/reports/jobs/big files, `v0.3.0-stage-b`), and C (domain suites: fraud train/score, reconciliation pro, KYC, `v0.4.0-stage-c`) are **done** — the whole engine, API, and 19-tool MCP surface exist. Next up is Stage D — the faces: web app and Excel add-in with `=XAI()` formulas. See [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.
+Stages A (working MCP loop, `v0.2.0-stage-a`), B (useful: ask/transform/recipes/reports/jobs/big files, `v0.3.0-stage-b`), C (domain suites: fraud, reconciliation pro, KYC, `v0.4.0-stage-c`), and the D1 web app (`v0.5.0-webapp`, at `/app`) are **done**. Remaining: web-app bulk mode + async-job wiring, then the Excel add-in with `=XAI()` formulas (D2), then ship (E). See [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) for the live status board and [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) for the original thesis.
