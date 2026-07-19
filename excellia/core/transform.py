@@ -67,6 +67,13 @@ def validate_recipe(recipe: dict[str, Any]) -> list[dict[str, Any]]:
                 f"Step {i + 1}: unknown op '{name}'. Available: "
                 f"llm_map, {', '.join(sorted(clean.OPS))}"
             )
+        extras = set(step) - {"op", "params"}
+        if extras:
+            raise TransformError(
+                f"Step {i + 1} ({name}): unexpected keys {sorted(extras)} — "
+                'op arguments go inside "params": '
+                '{"op": "%s", "params": {...}}' % name
+            )
         if name == "llm_map":
             params = step.get("params", {}) or {}
             missing = {"column", "into", "instruction"} - set(params)
@@ -162,33 +169,44 @@ def apply(df: pd.DataFrame, recipe: dict[str, Any], replace: bool = False,
     as previewed. The caller's DataFrame and file are never mutated.
     """
     steps = validate_recipe(recipe)
-    for step in steps:
+    for n, step in enumerate(steps, start=1):
         name, params = step["op"], dict(step.get("params", {}) or {})
-        if name == "llm_map":
-            df = _llm_map(df, llm=llm or Ollama(), **params)
-        elif not replace and name in _VALUE_OPS:
-            targets = params.get("columns") or params.get("column")
-            if targets is None:
-                df = clean.OPS[name](df, **params)
-                continue
-            targets = [targets] if isinstance(targets, str) else list(targets)
-            missing = [c for c in targets if c not in df.columns]
-            if missing:
-                raise TransformError(
-                    f"{name}: column(s) {missing} not found. "
-                    f"Actual columns: {list(df.columns)}"
-                )
-            df = df.copy()
-            renamed = []
-            for col in targets:
-                df[f"{col}_ai"] = df[col]
-                renamed.append(f"{col}_ai")
-            key = "columns" if "columns" in params else "column"
-            params[key] = renamed if key == "columns" else renamed[0]
-            df = clean.OPS[name](df, **params)
-        else:
-            df = clean.OPS[name](df, **params)
+        try:
+            df = _apply_step(df, name, params, replace, llm)
+        except clean.CleanError as e:
+            raise TransformError(f"Step {n} ({name}): {e}") from e
+        except TypeError as e:
+            raise TransformError(
+                f"Step {n} ({name}): bad params {sorted(params)} — {e}"
+            ) from e
     return df
+
+
+def _apply_step(df: pd.DataFrame, name: str, params: dict[str, Any],
+                replace: bool, llm: Ollama | None) -> pd.DataFrame:
+    """One recipe step; the caller wraps errors with the step number."""
+    if name == "llm_map":
+        return _llm_map(df, llm=llm or Ollama(), **params)
+    if not replace and name in _VALUE_OPS:
+        targets = params.get("columns") or params.get("column")
+        if targets is None:
+            return clean.OPS[name](df, **params)
+        targets = [targets] if isinstance(targets, str) else list(targets)
+        missing = [c for c in targets if c not in df.columns]
+        if missing:
+            raise TransformError(
+                f"{name}: column(s) {missing} not found. "
+                f"Actual columns: {list(df.columns)}"
+            )
+        df = df.copy()
+        renamed = []
+        for col in targets:
+            df[f"{col}_ai"] = df[col]
+            renamed.append(f"{col}_ai")
+        key = "columns" if "columns" in params else "column"
+        params[key] = renamed if key == "columns" else renamed[0]
+        return clean.OPS[name](df, **params)
+    return clean.OPS[name](df, **params)
 
 
 def preview(df: pd.DataFrame, instruction: str, llm: Ollama | None = None,

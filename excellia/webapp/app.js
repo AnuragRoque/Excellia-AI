@@ -3,7 +3,10 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const S = { file: localStorage.getItem("excellia.file") || "" };
+const S = {
+  file: localStorage.getItem("excellia.file") || "",
+  big: localStorage.getItem("excellia.big") === "1",
+};
 
 /* ---------- plumbing ---------- */
 
@@ -36,6 +39,40 @@ async function api(method, path, body) {
     throw new Error(typeof d === "string" ? d : JSON.stringify(d ?? data));
   }
   return data;
+}
+
+/* Big-file mode: the same POST, but routed through the job queue and
+   polled — the browser never waits on one long request. The helper
+   resolves to the same result shape as the sync endpoint, so views
+   don't care which path ran. */
+const JOB_OPS = {
+  "/profile": "profile", "/validate": "validate", "/anomalies": "anomalies",
+  "/reconcile": "reconcile", "/clean": "clean", "/report": "report",
+  "/transform/apply": "transform_apply", "/reconcile/run": "reconcile_run",
+  "/fraud/train": "fraud_train", "/fraud/score": "fraud_score",
+  "/kyc/match_names": "kyc_match_names", "/kyc/dedupe": "kyc_dedupe",
+};
+
+function jobNote(msg) {
+  const n = $("#jobnote");
+  n.hidden = !msg;
+  n.textContent = msg || "";
+}
+
+async function call(method, path, body) {
+  if (method !== "POST" || !S.big || !JOB_OPS[path]) return api(method, path, body);
+  const sub = await api("POST", "/jobs", { op: JOB_OPS[path], params: body });
+  const started = Date.now();
+  try {
+    for (;;) {
+      const j = await api("GET", `/jobs/${sub.job_id}`);
+      if (j.status === "done") return j.result;
+      if (j.status === "error") throw new Error(j.error || "job failed");
+      jobNote(`job ${sub.job_id} (${JOB_OPS[path]}) ${j.status} — ${
+        Math.round((Date.now() - started) / 1000)}s`);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  } finally { jobNote(""); }
 }
 
 async function run(btn, fn) {           // busy-state wrapper for buttons
@@ -88,6 +125,7 @@ const VIEWS = {
   reconcile: { label: "Reconcile", render: reconcileView },
   fraud: { label: "Fraud", render: fraudView },
   kyc: { label: "KYC", render: kycView },
+  bulk: { label: "Bulk", render: bulkView },
   jobs: { label: "Jobs & History", render: jobsView },
 };
 
@@ -113,9 +151,9 @@ function qualityView(v) {
     const file = needFile(); if (!file) return;
     const ruleset = $("#q-ruleset").value, sens = parseFloat($("#q-sens").value) || 0.05;
     const [prof, val, anom] = [
-      await api("POST", "/profile", { file }),
-      await api("POST", "/validate", { file, ruleset }),
-      await api("POST", "/anomalies", { file, contamination: sens }),
+      await call("POST", "/profile", { file }),
+      await call("POST", "/validate", { file, ruleset }),
+      await call("POST", "/anomalies", { file, contamination: sens }),
     ];
     $("#q-out").innerHTML = `
       ${kv({ rows: prof.row_count, columns: prof.column_count,
@@ -128,7 +166,7 @@ function qualityView(v) {
   });
   $("#q-report").onclick = (e) => run(e.target, async () => {
     const file = needFile(); if (!file) return;
-    const r = await api("POST", "/report", { file, ruleset: $("#q-ruleset").value });
+    const r = await call("POST", "/report", { file, ruleset: $("#q-ruleset").value });
     const cls = r.health.score >= 80 ? "good" : r.health.score >= 50 ? "mid" : "poor";
     $("#q-out").innerHTML = `
       <div class="score ${cls}">${r.health.score}<span style="font-size:16px">/100</span></div>
@@ -138,25 +176,60 @@ function qualityView(v) {
   });
 }
 
+/* Chat-style Ask: each message is still exactly one POST /ask — the thread
+   is pure rendering. History lives in memory for the session. */
+S.chat = S.chat || [];
+
 function askView(v) {
   v.innerHTML = `
     <h2>Ask the data</h2>
-    <p class="sub">The local LLM plans a query, pandas computes it, and every number comes from the
-      evidence table below the answer. Needs Ollama running.</p>
-    <section class="card">
-      <label class="f">Question</label>
-      <textarea id="a-q" placeholder="total amount per city, highest first"></textarea>
-      <button id="a-run">Ask</button>
-      <div class="out" id="a-out"></div>
+    <p class="sub">Chat with the selected file. The local LLM plans a query, the engine computes
+      it, and every answer carries its evidence rows and the plan that ran. Needs Ollama.</p>
+    <section class="card chat">
+      <div class="thread" id="a-thread"></div>
+      <div class="chatbar">
+        <textarea id="a-q" placeholder="e.g. total amount per city, highest first"></textarea>
+        <button id="a-send">Ask</button>
+      </div>
     </section>`;
-  $("#a-run").onclick = (e) => run(e.target, async () => {
+  const thread = $("#a-thread");
+
+  const bubbleUser = (q) => `<div class="msg user">${esc(q)}</div>`;
+  const bubbleBot = (r) => r.error
+    ? `<div class="msg bot err"><span class="who">excellia</span>${esc(r.error)}</div>`
+    : `<div class="msg bot"><span class="who">excellia${r.refused ? " — could not answer" : ""}</span>
+         ${esc(r.answer)}
+         <details><summary>evidence (${r.matched_rows ?? 0} rows) &amp; query plan</summary>
+           ${table(r.evidence, 50)}${json(r.plan)}</details>
+       </div>`;
+
+  const paint = () => {
+    thread.innerHTML = S.chat.length
+      ? S.chat.map((m) => (m.q !== undefined ? bubbleUser(m.q) : bubbleBot(m))).join("")
+      : `<p class="hello">Ask anything about the file — totals, groups, filters, outliers.<br>
+         Every number is computed, never invented.</p>`;
+    thread.scrollTop = thread.scrollHeight;
+  };
+  paint();
+
+  const send = () => run($("#a-send"), async () => {
     const file = needFile(); if (!file) return;
-    const r = await api("POST", "/ask", { file, question: $("#a-q").value });
-    $("#a-out").innerHTML = `
-      <section class="card"><h3>${r.refused ? "Could not answer" : "Answer"}</h3>
-        <p>${esc(r.answer)}</p></section>
-      <h3>Evidence (${r.matched_rows ?? 0} rows)</h3>${table(r.evidence)}
-      <h3 style="margin-top:12px">Query plan (what actually ran)</h3>${json(r.plan)}`;
+    const question = $("#a-q").value.trim();
+    if (!question) return;
+    $("#a-q").value = "";
+    S.chat.push({ q: question });
+    paint();
+    try {
+      const r = await api("POST", "/ask", { file, question });
+      S.chat.push(r);
+    } catch (e) {
+      S.chat.push({ error: e.message });
+    }
+    paint();
+  });
+  $("#a-send").onclick = send;
+  $("#a-q").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   });
 }
 
@@ -203,7 +276,7 @@ function transformView(v) {
     $("#t-apply").onclick = (e2) => run(e2.target, async () => {
       const body = { file, recipe: window._recipe, replace: $("#t-replace").checked };
       if ($("#t-save").value.trim()) body.save_as = $("#t-save").value.trim();
-      const a = await api("POST", "/transform/apply", body);
+      const a = await call("POST", "/transform/apply", body);
       $("#t-out").insertAdjacentHTML("beforeend",
         `<p class="pathline">written to: ${esc(a.out_path)}</p>
          <h3 style="margin-top:10px">Result sample</h3>${table(a.sample, 10)}`);
@@ -215,7 +288,7 @@ function transformView(v) {
     const file = needFile(); if (!file) return;
     const name = $("#t-recipes").value;
     if (!name) { toast("No saved recipes yet — preview a transform and save it."); return; }
-    const a = await api("POST", "/transform/apply", { file, recipe_name: name });
+    const a = await call("POST", "/transform/apply", { file, recipe_name: name });
     $("#t-rout").innerHTML = `<p class="pathline">written to: ${esc(a.out_path)}</p>
       ${table(a.sample, 10)}`;
   });
@@ -271,7 +344,7 @@ function reconcileView(v) {
       }
       body.profile = profile;
     }
-    const r = await api("POST", "/reconcile/run", body);
+    const r = await call("POST", "/reconcile/run", body);
     const res = r.result;
     const tabs = { matched: res.matched, discrepancies: res.discrepancies,
                    only_in_a: res.only_in_a, only_in_b: res.only_in_b };
@@ -332,7 +405,7 @@ function fraudView(v) {
 
   $("#f-train").onclick = (e) => run(e.target, async () => {
     const file = needFile(); if (!file) return;
-    const r = await api("POST", "/fraud/train", {
+    const r = await call("POST", "/fraud/train", {
       file, label_column: $("#f-label").value.trim(),
       model_name: $("#f-name").value.trim() || "model",
       algorithm: $("#f-algo").value });
@@ -347,7 +420,7 @@ function fraudView(v) {
     const file = needFile(); if (!file) return;
     const model = $("#f-models").value;
     if (!model) { toast("Train a model first."); return; }
-    const r = await api("POST", "/fraud/score", { file, model_name: model });
+    const r = await call("POST", "/fraud/score", { file, model_name: model });
     $("#f-sout").innerHTML = `
       ${kv({ ...r.summary.bands, flagged: r.summary.flagged, rows: r.summary.rows })}
       <p class="sub">${esc(r.summary.note)}</p>
@@ -397,7 +470,7 @@ function kycView(v) {
     </section>`;
   $("#k-match").onclick = (e) => run(e.target, async () => {
     const file = needFile(); if (!file) return;
-    const r = await api("POST", "/kyc/match_names", {
+    const r = await call("POST", "/kyc/match_names", {
       file, col_a: $("#k-a").value.trim() || null, col_b: $("#k-b").value.trim() || null,
       group_by: $("#k-g").value.trim() || null, llm_verify: $("#k-llm").checked,
       seq_threshold: parseFloat($("#k-t").value) || 50 });
@@ -405,7 +478,7 @@ function kycView(v) {
   });
   $("#k-dedupe").onclick = (e) => run(e.target, async () => {
     const file = needFile(); if (!file) return;
-    const r = await api("POST", "/kyc/dedupe", {
+    const r = await call("POST", "/kyc/dedupe", {
       file, columns: $("#k-cols").value.split(",").map((s) => s.trim()).filter(Boolean),
       threshold: parseFloat($("#k-dt").value) || 85, strategy: $("#k-strat").value });
     $("#k-dout").innerHTML = `
@@ -416,6 +489,130 @@ function kycView(v) {
       ${table(r.merges.map((m) => ({ canonical_row: m.canonical_row,
         merged_rows: m.merged_rows.join(", "),
         values: Object.values(m.values).join(" | ") })))}`;
+  });
+}
+
+/* Bulk: one operation × many files. Each file is ONE background job on the
+   server; this view only submits, polls, and renders the matrix. */
+function bulkView(v) {
+  v.innerHTML = `
+    <h2>Bulk</h2>
+    <p class="sub">Run one operation across many files. Every file becomes a background job on
+      the server — the browser only watches.</p>
+    <section class="card">
+      <label class="drop" id="b-drop">
+        <input type="file" id="b-files" accept=".xlsx,.xlsm,.xls,.csv,.tsv" multiple hidden>
+        <span id="b-droplabel">Drop several spreadsheets here or click to pick</span>
+      </label>
+      <label class="f">…or paths on this machine, one per line</label>
+      <textarea id="b-paths" placeholder="C:\\data\\jan.xlsx\nC:\\data\\feb.xlsx"></textarea>
+      <div class="row">
+        <div><label class="f">Operation</label><select id="b-op">
+          <option value="profile">profile</option>
+          <option value="validate">validate</option>
+          <option value="report">health report</option>
+          <option value="transform_apply">run saved recipe</option></select></div>
+        <div><label class="f">Ruleset (validate/report)</label><select id="b-ruleset"></select></div>
+        <div><label class="f">Recipe (run recipe)</label><select id="b-recipe"></select></div>
+      </div>
+      <button id="b-run">Run on all files</button>
+      <div class="out" id="b-out"></div>
+    </section>`;
+
+  api("GET", "/rulesets").then((r) => {
+    $("#b-ruleset").innerHTML = r.rulesets.map((n) =>
+      `<option${n === "default" ? " selected" : ""}>${esc(n)}</option>`).join("");
+  }).catch(() => {});
+  api("GET", "/recipes").then((r) => {
+    $("#b-recipe").innerHTML = r.recipes.length
+      ? r.recipes.map((n) => `<option>${esc(n)}</option>`).join("")
+      : `<option value="">(none saved yet)</option>`;
+  }).catch(() => {});
+
+  const drop = $("#b-drop");
+  const addUploads = async (files) => {
+    $("#b-droplabel").textContent = `uploading ${files.length} file(s)…`;
+    for (const f of files) {
+      const fd = new FormData();
+      fd.append("file", f);
+      const resp = await fetch("/upload", { method: "POST", body: fd });
+      const data = await resp.json();
+      if (!resp.ok) { toast(data.detail || "upload failed"); continue; }
+      $("#b-paths").value = ($("#b-paths").value.trim() + "\n" + data.path).trim();
+    }
+    $("#b-droplabel").textContent = "Drop several spreadsheets here or click to pick";
+  };
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault(); drop.classList.remove("over");
+    if (e.dataTransfer.files.length) addUploads([...e.dataTransfer.files]);
+  });
+  $("#b-files").addEventListener("change", (e) => {
+    if (e.target.files.length) addUploads([...e.target.files]);
+  });
+
+  const resultCell = (op, r) => {
+    if (op === "profile") return `${r.row_count} rows × ${r.column_count} cols`;
+    if (op === "validate")
+      return `${r.summary.total} issues (${r.summary.errors} errors, ${r.summary.warnings} warnings)`;
+    if (op === "report") return `health ${r.health.score}/100 — ${r.path}`;
+    if (op === "transform_apply") return `→ ${r.out_path}`;
+    return "done";
+  };
+
+  $("#b-run").onclick = (e) => run(e.target, async () => {
+    const files = [...new Set($("#b-paths").value.split("\n").map((s) => s.trim()).filter(Boolean))];
+    if (!files.length) { toast("Add at least one file — drop files or paste paths."); return; }
+    const op = $("#b-op").value;
+    const params = (file) =>
+      op === "validate" ? { file, ruleset: $("#b-ruleset").value }
+      : op === "report" ? { file, ruleset: $("#b-ruleset").value }
+      : op === "transform_apply" ? { file, recipe_name: $("#b-recipe").value }
+      : { file };
+    if (op === "transform_apply" && !$("#b-recipe").value) {
+      toast("No saved recipes yet — save one in the Transform view first."); return;
+    }
+
+    const rows = [];
+    for (const file of files) {
+      try {
+        const sub = await api("POST", "/jobs", { op, params: params(file) });
+        rows.push({ file, job_id: sub.job_id, status: "queued", detail: "" });
+      } catch (err) {
+        rows.push({ file, job_id: null, status: "error", detail: err.message });
+      }
+    }
+
+    const paint = () => {
+      const done = rows.filter((r) => r.status === "done").length;
+      const failed = rows.filter((r) => r.status === "error").length;
+      $("#b-out").innerHTML = `
+        <p class="sub">${done + failed}/${rows.length} finished — ${done} ok, ${failed} failed.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>file</th><th>status</th><th>result</th></tr></thead>
+          <tbody>${rows.map((r) => `<tr>
+            <td>${esc(r.file.split(/[\\/]/).pop())}</td>
+            <td><span class="badge ${esc(r.status)}">${esc(r.status)}</span></td>
+            <td>${esc(r.detail)}</td></tr>`).join("")}
+          </tbody></table></div>`;
+    };
+    paint();
+
+    while (rows.some((r) => r.status === "queued" || r.status === "running")) {
+      if (!document.contains(v)) return;   // user left the view — stop polling
+      await new Promise((res) => setTimeout(res, 1500));
+      await Promise.all(rows.map(async (r) => {
+        if (!r.job_id || r.status === "done" || r.status === "error") return;
+        try {
+          const j = await api("GET", `/jobs/${r.job_id}`);
+          r.status = j.status;
+          if (j.status === "done") r.detail = resultCell(op, j.result);
+          if (j.status === "error") r.detail = j.error || "failed";
+        } catch { /* API hiccup — keep polling */ }
+      }));
+      paint();
+    }
   });
 }
 
@@ -491,6 +688,16 @@ function boot() {
     if (e.target.value.trim()) setFile(e.target.value.trim());
   });
   if (S.file) setFile(S.file);
+
+  const big = $("#bigmode");
+  big.checked = S.big;
+  big.addEventListener("change", () => {
+    S.big = big.checked;
+    localStorage.setItem("excellia.big", S.big ? "1" : "0");
+    toast(S.big
+      ? "Big file mode on — heavy operations run as background jobs (watch Jobs & History)."
+      : "Big file mode off — operations run synchronously.", true);
+  });
 
   api("GET", "/health")
     .then((h) => { const s = $("#status"); s.textContent = `core API ${h.version}`; s.className = "status ok"; })

@@ -6,30 +6,38 @@
   <title>Excellia</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <style>
-    :root { --line:#d7dce6; --dim:#5d6b85; --accent:#2563eb; --ok:#178a4c; --bad:#c22f2f; }
+    /* Same palette as the web app: near-black, pastel pink→periwinkle gradient
+       for actions. The AI-written CELL accent in Excel stays #2563eb (spec). */
+    :root { --bg:#0b0b0f; --panel:#17171d; --line:#2a2a35; --dim:#8b8fa0; --text:#e8e9f1;
+            --grad:linear-gradient(115deg,#f6b6d4 0%,#e6c4ee 45%,#b9c6f2 100%);
+            --dark:#14161d; --ok:#6fd9a3; --bad:#f08a8a; }
     * { box-sizing:border-box; margin:0; }
-    body { font:13px/1.5 "Segoe UI", system-ui, sans-serif; color:#1c2333; padding:14px; }
-    h1 { font-size:17px; margin-bottom:2px; }
+    body { font:13px/1.5 "Segoe UI", system-ui, sans-serif; color:var(--text);
+      background:var(--bg); padding:14px; }
+    h1 { font-size:18px; margin-bottom:2px; font-family:Georgia, serif; }
     .tag { color:var(--dim); font-size:11px; margin-bottom:12px; }
+    a { color:#b9c6f2; }
     .pill { display:inline-block; font-size:11px; padding:2px 10px; border-radius:12px;
-            background:#eef1f6; color:var(--dim); margin-bottom:12px; }
-    .pill.ok { background:#e2f5ea; color:var(--ok); } .pill.bad { background:#fbe7e7; color:var(--bad); }
-    section { border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+            background:var(--panel); color:var(--dim); margin-bottom:12px; }
+    .pill.ok { background:#193526; color:var(--ok); } .pill.bad { background:#3a1d22; color:var(--bad); }
+    section { border:1px solid var(--line); background:var(--panel); border-radius:10px;
+      padding:12px; margin-bottom:12px; }
     h2 { font-size:13px; margin-bottom:8px; }
     label { display:block; font-size:11px; color:var(--dim); margin:8px 0 2px; }
     input, select, textarea { width:100%; padding:6px 8px; border:1px solid var(--line);
-      border-radius:7px; font-size:13px; }
+      border-radius:7px; font-size:13px; background:var(--bg); color:var(--text); }
     textarea { min-height:52px; font-family:Consolas, monospace; font-size:12px; }
     button { margin-top:10px; padding:7px 14px; border:0; border-radius:7px;
-      background:var(--accent); color:#fff; font-size:13px; cursor:pointer; }
+      background:var(--grad); color:var(--dark); font-weight:600; font-size:13px; cursor:pointer; }
     button:disabled { opacity:.5; }
-    .out { margin-top:8px; font-size:12px; white-space:pre-wrap; color:#333; }
+    .out { margin-top:8px; font-size:12px; white-space:pre-wrap; color:var(--text); }
     .out.err { color:var(--bad); }
     .hint { color:var(--dim); font-size:11px; margin-top:6px; }
     table { border-collapse:collapse; margin-top:6px; width:100%; font-size:11px; }
     td, th { border:1px solid var(--line); padding:3px 6px; text-align:left; }
     .soon { color:var(--dim); font-size:12px; }
-    code { background:#eef1f6; padding:1px 5px; border-radius:4px; font-size:11px; }
+    code { background:var(--bg); border:1px solid var(--line); padding:1px 5px;
+      border-radius:4px; font-size:11px; }
   </style>
 </head>
 <body>
@@ -70,6 +78,22 @@
   </section>
 
   <section>
+    <h2>Categorise selection</h2>
+    <label>Categories (comma-separated)</label>
+    <input id="g-cats" placeholder="food, travel, salary, other">
+    <button id="g-run">Categorise → adjacent column</button>
+    <div class="hint">Each cell gets exactly one of your categories. Needs Ollama.</div>
+    <div class="out" id="g-out"></div>
+  </section>
+
+  <section>
+    <h2>Summarise selection</h2>
+    <button id="s-run">Summarise → adjacent column</button>
+    <div class="hint">Shortens each cell to its essence (≤ 8 words). Needs Ollama.</div>
+    <div class="out" id="s-out"></div>
+  </section>
+
+  <section>
     <h2>Formulas</h2>
     <div class="hint">
       <code>=XAI.VALIDATE(C2:C99,"pan")</code> · <code>=XAI.MATCH(A2,B2)</code> ·
@@ -80,9 +104,14 @@
 
   <section>
     <h2>Chat with your data</h2>
-    <p class="soon">Coming in the next milestone — meanwhile the web app at
-      <a href="https://localhost:8443/app/" target="_blank">localhost:8443/app</a> has the full
-      chat with evidence tables.</p>
+    <label>Question about the selected range (include the header row)</label>
+    <textarea id="c-q" placeholder="total amount per city, highest first"></textarea>
+    <button id="c-ask">Ask</button>
+    <div class="hint">The local LLM plans a query, deterministic code computes it — every
+      number comes from the evidence rows below. Needs Ollama running. Bigger analyses live in
+      the <a href="https://localhost:8443/app/" target="_blank">web app</a>.</div>
+    <div class="out" id="c-out"></div>
+    <div id="c-evidence"></div>
   </section>
 
   <script src="taskpane.js"></script>

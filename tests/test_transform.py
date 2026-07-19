@@ -28,6 +28,17 @@ def test_validate_recipe_shapes():
         transform.validate_recipe({"steps": [{"op": "sparkle"}]})
     with pytest.raises(transform.TransformError, match="llm_map needs params"):
         transform.validate_recipe({"steps": [{"op": "llm_map", "params": {"column": "x"}}]})
+    # the flat-step mistake (op args at the top level) is named, not a TypeError
+    with pytest.raises(transform.TransformError, match=r'inside "params"'):
+        transform.validate_recipe(
+            {"steps": [{"op": "case", "columns": ["name"], "to": "lower"}]})
+
+
+def test_apply_bad_param_names_are_instructive(df):
+    # right shape, wrong param name -> step number + params named, no raw TypeError
+    recipe = {"steps": [{"op": "case", "params": {"columns": ["name"], "mode": "lower"}}]}
+    with pytest.raises(transform.TransformError, match=r"Step 1 \(case\): bad params"):
+        transform.apply(df, recipe)
 
 
 def test_apply_value_op_goes_to_ai_columns(df):

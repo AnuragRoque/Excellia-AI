@@ -23,6 +23,10 @@
     </div>
 
     <nav id="nav"></nav>
+    <label class="bigmode" title="Heavy operations run as background jobs and are polled — the page never waits on one long request. Use for 100K+ row files.">
+      <input type="checkbox" id="bigmode"> Big file mode
+    </label>
+    <div id="jobnote" class="jobnote" hidden></div>
     <div id="status" class="status">checking API…</div>
   </aside>
 

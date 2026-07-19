@@ -12,6 +12,31 @@ const CACHE = new Map(); // `${kind}|${instruction}|${value}` -> result
 const QUEUES = new Map(); // `${kind}|${instruction}` -> {items: [...], timer}
 const BATCH_MS = 80;
 
+/* Persist LLM-derived results (kind "map": RUN/TAG) in OfficeRuntime.storage
+   so reopening the workbook doesn't re-run the LLM on unchanged cells.
+   Deterministic kinds (validate) are cheap to recompute and stay in-memory. */
+const STORE_KEY = "xai.cache.v1";
+const STORE_MAX = 2000; // newest entries win; keeps us far from the storage quota
+const storage = typeof OfficeRuntime !== "undefined" ? OfficeRuntime.storage : null;
+
+const cacheReady = (async () => {
+  if (!storage) return;
+  try {
+    const raw = await storage.getItem(STORE_KEY);
+    if (raw) for (const [k, v] of JSON.parse(raw)) CACHE.set(k, v);
+  } catch (e) { /* absent or corrupt — start empty, never block a formula */ }
+})();
+
+let saveTimer = null;
+function persistCache() {
+  if (!storage) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const llm = [...CACHE].filter(([k]) => k.startsWith("map|"));
+    storage.setItem(STORE_KEY, JSON.stringify(llm.slice(-STORE_MAX))).catch(() => {});
+  }, 1500);
+}
+
 function fnError(message) {
   return new CustomFunctions.Error(
     CustomFunctions.ErrorCode.invalidValue, String(message).slice(0, 250));
@@ -30,9 +55,10 @@ async function post(path, body) {
 
 /* Coalesce per-cell lookups into one POST per (kind, instruction). */
 function batched(kind, path, instruction, buildBody) {
-  return (value) => {
+  return async (value) => {
+    await cacheReady; // persisted results must win before any HTTP happens
     const key = `${kind}|${instruction}|${value}`;
-    if (CACHE.has(key)) return Promise.resolve(CACHE.get(key));
+    if (CACHE.has(key)) return CACHE.get(key);
     const qkey = `${kind}|${instruction}`;
     let q = QUEUES.get(qkey);
     if (!q) {
@@ -44,6 +70,7 @@ function batched(kind, path, instruction, buildBody) {
         try {
           const data = await post(path, buildBody(values));
           values.forEach((v, i) => CACHE.set(`${kind}|${instruction}|${v}`, data.results[i]));
+          persistCache();
           q.items.forEach((i) => i.resolve(CACHE.get(`${kind}|${instruction}|${i.value}`)));
         } catch (e) {
           q.items.forEach((i) => i.reject(e));

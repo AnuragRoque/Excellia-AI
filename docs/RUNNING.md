@@ -127,11 +127,14 @@ excellia-api        # then open http://127.0.0.1:8000/app/
 ```
 
 Drag-drop a spreadsheet (or paste a local path) in the sidebar, then use the views:
-**Quality** (profile/validate/anomalies + health-score report) · **Ask the data** (answer +
-evidence + query plan) · **Transform** (preview → confirm → recipes) · **Reconcile** (profiles,
-match-level tabs, 5-sheet report) · **Fraud** (train/score/evaluate) · **KYC** (name match,
-dedupe) · **Jobs & History**. The web layer owns zero logic — every button is one HTTP call to
-the endpoints below.
+**Quality** (profile/validate/anomalies + health-score report) · **Ask the data** (a chat
+thread — every answer carries its evidence rows + query plan) · **Transform** (preview →
+confirm → recipes) · **Reconcile** (profiles, match-level tabs, 5-sheet report) · **Fraud**
+(train/score/evaluate) · **KYC** (name match, dedupe) · **Bulk** (one op × many files — one
+background job each, live status matrix) · **Jobs & History**. For 100K+ row files flip the
+sidebar **Big file mode** toggle: heavy ops then run as background jobs and are polled, so the
+page never hangs on one long request. The web layer owns zero logic — every button is one HTTP
+call to the endpoints below.
 
 ## Way 5 — Core API directly (no AI at all)
 
@@ -243,8 +246,10 @@ $env:EXCELLIA_BIG = "1"; pytest           # + the 500K-row memory-budget test (~
 
 ## What you can't do yet (so you don't go looking)
 
-No chat inside the Excel task pane yet (use the web app's Ask view), no bulk multi-file mode
-in the web app, formula cache doesn't survive closing the workbook, and no OCR (deliberately
-deferred optional extra). Everything else — validation, anomalies, ask, transform, reports,
-fraud, reconciliation profiles, KYC, the web UI, and the `=XAI.*` formulas — is live.
+No OCR (deliberately deferred optional extra), no keywords/simplify-JSON pane ops, no formula
+cancellation mid-batch. Everything else — validation, anomalies, ask, transform, reports,
+fraud, reconciliation profiles, KYC, the full web UI (**Big file mode** background jobs,
+chat-style Ask, **Bulk** multi-file runs), the `=XAI.*` formulas (LLM results cached across
+workbook reopen), and the task pane (validate / transform / name match / categorise /
+summarise / **chat**) — is live.
 Status in [`EXCELLIA_FEATURES.md`](../EXCELLIA_FEATURES.md) §1.

@@ -10,13 +10,18 @@
 **Repo:** `11 Excellia Core/excellia_codebase`
 **Legacy source (read-only reference):** `../05 Excellia AI/Excellia-AI-Demo` (Flask monolith: `routes.py`, `routes2.py`)
 **Concept docs (the requirements this file absorbs):** `project concept/` — add-in concept, KYC spec, Limestone spec, Excellia demo knowledge
-**Last updated:** 2026-07-17 (Stages B, C, D1 web app, AND D2 add-in v1 all landed. D2: Office.js
-add-in (one manifest, Windows + Mac), `=XAI.RUN/SPLIT/TAG/ASK/VALIDATE/MATCH` custom functions
-with client batching + in-session caching, lean task pane (validate/transform/name-match,
-non-destructive adjacent-column writes), NO Node proxy — `excellia-addin` serves everything over
-HTTPS with a consent-trusted localhost cert. New `/values/*` API endpoints. 239 tests passing.
-Gate D stays OPEN: sideload into real Excel (manual), async-job UI wiring, cache persistence,
-pane chat. See §3 D1/D2 for exact checkbox state.)
+**Last updated:** 2026-07-19 (ALL Gate D automation teeth closed in two passes. Pass 1:
+**async-job wiring** ("Big file mode" toggle → every heavy POST via `POST /jobs` + polling,
+live status line), **formula cache persistence** (`OfficeRuntime.storage`, survives reopen),
+**pane chat** (`/values/ask` + evidence), `README_RUNNER.md`, and a face restyle to the owner's
+reference palette (near-black, pink→periwinkle gradient, serif numerals; Ask view rebuilt as a
+chat thread — still one `POST /ask` per message). Pass 2: **web-app bulk mode** (N files × one
+op → one job each, live matrix), **pane categorise/summarise** (`/values/map`), a **live
+500K-row run** through the job path (profile 3s · validate 5s · transform 4.3s · report 216s),
+and an instructive-errors fix in `transform.py` (flat recipe steps / bad param names now name
+the step instead of leaking TypeError). 240 tests passing. Gate D now open ONLY on the manual
+Excel sideload; deferred: keywords/simplify-JSON pane ops, abort button, formula cancellation.
+See §3 D1/D2.)
 
 ---
 
@@ -134,9 +139,11 @@ to finish binding and every tool call hangs. `tests/test_mcp_integration.py` gua
 
 - [~] Stage D — FACES: **D1 web app v1 ✅** (static SPA at `/app`, 7 views, upload door) and
        **D2 add-in v1 ✅** (`=XAI.*` formulas + lean task pane over HTTPS, Windows + Mac, no Node).
-       Gate D still open on: live Excel sideload check (manual) · async-job wiring in both faces ·
-       formula cache persistence across file reopen · pane chat + categorise/summarise ops ·
-       web-app bulk mode. Detail in §3.
+       **2026-07-19: async-job wiring ✅ (Big file mode) · formula cache persistence ✅
+       (OfficeRuntime.storage) · pane chat ✅ (`/values/ask` + evidence) · web-app bulk mode ✅ ·
+       pane categorise/summarise ✅ · 500K-row live run through the job path ✅ (timings in §3).**
+       Gate D now open ONLY on the manual step: sideload into real Excel (Windows + Mac) and
+       paste the Claude Desktop config. Detail in §3.
 - [ ] Stage E — SHIP: polish, video, README, post, PyPI
 
 ---
@@ -465,10 +472,19 @@ the web layer — test-enforced):
   - [x] **Fraud** — train (label column → metrics card + top features) · score (bands, per-row top
         factors) · evaluate (holdout vs CV side by side)
   - [x] **KYC** — name matching (pairwise/cross, LLM-verify toggle) & entity dedupe with merge log
-  - [ ] **Bulk mode** — N files × one ruleset/recipe → job matrix, roll-up summary (deferred)
+  - [x] **Bulk mode** (2026-07-19) — N files (multi-drop upload or pasted paths) × one op
+        (profile / validate+ruleset / health report / saved recipe) → ONE background job per
+        file via `POST /jobs`, polled into a live status matrix with per-file results and a
+        roll-up line; polling stops when the user leaves the view. Zero new API surface.
   - [x] **Jobs & History** — polling job table + audit-trail browser fed by `history.jsonl`
-- [~] Big-file UX: server side streams (B2) and the job queue exists (B3); the UI runs sync calls
-      v1 — wiring the async_ path into the views is a follow-up
+- [x] Big-file UX: sidebar **"Big file mode"** toggle (persisted) — every heavy POST (profile/
+      validate/anomalies/report/transform-apply/reconcile-run/fraud-train+score/kyc) routes
+      through `POST /jobs` + 1.5s polling with a live sidebar job-status line; the `call()`
+      helper resolves to the sync endpoint's exact result shape so views are path-agnostic.
+      *Landed 2026-07-19. Live 500K-row run through this exact job sequence: profile 3s ·
+      validate 5s (480K seeded issues) · transform (2-step recipe) 4.3s · highlighted report
+      216s — the xlsx write dominates; the job queue is precisely why the page never freezes.
+      (Driven via HTTP; an in-browser click-through of the same calls remains a nice-to-have.)*
 - [x] Auth: **none in v1** (localhost, single analyst); uploads land in the workspace, originals
       never touched
 
@@ -495,8 +511,10 @@ Excel custom functions require a namespace, so the general formula is `=XAI.RUN(
 - [x] `=XAI.MATCH(a, b)` — KYC name-similarity 0–100 between cells/equal ranges (broadcasts 1-vs-N)
 - [~] Engineering rules for formula mode:
   - [x] batching: cells coalesce into ONE API request per (function, prompt) per 80ms window
-  - [~] **cache** keyed by (value, prompt): in-memory — survives recalcs within a session; the
-        workbook-settings + workspace persistence layer (survives file reopen) is still to do
+  - [x] **cache** keyed by (value, prompt): in-memory for the session + LLM-derived results
+        persisted to `OfficeRuntime.storage` (newest-2000 cap, debounced writes, loaded before
+        any HTTP on startup) — survives file reopen. Deterministic kinds recompute (cheap).
+        *Landed 2026-07-19.*
   - [x] volatile off (custom functions are non-volatile by default); errors surface as `#VALUE!`
         with the API's instructive message (Excel doesn't allow custom `#XAI!` codes)
   - [ ] cancellation + long-batch handoff to a task-pane job — deferred
@@ -509,9 +527,11 @@ Excel custom functions require a namespace, so the general formula is `=XAI.RUN(
 - [~] Range handling: uses the current selection with explicit shape checks (single column /
       two columns); `getUsedRange` intersection guard still to add
 - [~] Operations shipped: **Validate formats** · **Transform selection (preview → apply)** ·
-      **Name match** — all mapped to `/values/*` core endpoints, zero local prompts.
-      Deferred: Chat (next milestone, by explicit owner decision) · Categorise · Summarise ·
-      Keywords · Simplify JSON
+      **Name match** · **Chat** (2026-07-19: question over the selected range incl. header row →
+      `/values/ask` → answer + evidence table, refusals surfaced) · **Categorise** +
+      **Summarise** (2026-07-19: fixed instructions over the same `/values/map` door,
+      adjacent-column writes) — all mapped to `/values/*` core endpoints.
+      Deferred: Keywords · Simplify JSON
 - [ ] Combined vs Per-row processing modes with live progress — deferred (single batched mode v1)
 - [x] **Non-destructive always:** writes ONLY to an empty adjacent column (refuses otherwise,
       instructively); AI-written cells get the visual accent (blue + italic) + bold header
@@ -521,13 +541,17 @@ Excel custom functions require a namespace, so the general formula is `=XAI.RUN(
 - [x] Manifest + sideload instructions for **Windows (shared-folder catalog)** and **macOS (wef
       folder)** printed by `excellia-addin` and in docs/RUNNING.md; AppSource much later
 
-**GATE D — OPEN (v1 of both faces shipped 2026-07-17, tagged `v0.5.0-webapp` + `v0.6.0-addin`; the
-gate's remaining teeth):** web app runs a 500K-row file through checks→transform→report without a
-freeze — *needs the async-job UI wiring + a live big-file run* · `=XAI.SPLIT` spills ✔ and recalc
-hits the in-session cache ✔ — *file-reopen cache persistence still to do* · task pane transforms a
-column non-destructively ✔ — *live progress + categorise op deferred* · faces contain ZERO logic ✔
-(test-enforced for both; the `/values/*` endpoints they call live in API→core where they belong) ·
-*plus the inherently manual step: sideload into real Excel on Windows and Mac and watch it work*
+**GATE D — OPEN only on the manual step (2026-07-19; automation teeth all closed):**
+500K-row file through checks→transform→report without a freeze ✔ (Big file mode job path,
+live-timed: 3s/5s/4.3s/216s — see D1) · `=XAI.SPLIT` spills ✔, recalc hits the cache ✔, cache
+survives file reopen ✔ (`OfficeRuntime.storage`) · task pane transforms non-destructively ✔ +
+chat/categorise/summarise ✔ (*live per-row progress + abort still deferred*) · bulk mode ✔ ·
+faces contain ZERO logic ✔ (test-enforced for both) · **remaining: sideload into real Excel on
+Windows and Mac and watch it work — inherently manual, `excellia-addin` prints the steps.**
+*Bonus fix from the live run: flat-params recipe steps and wrong param names now raise
+instructive TransformErrors naming the step (`transform.validate_recipe` rejects stray step
+keys; `apply` wraps TypeError/CleanError with the step number) instead of leaking a raw
+TypeError — regression-tested.*
 
 ### Stage E — SHIP
 
@@ -675,8 +699,9 @@ of the interface: name the problem, name the fix, name the alternative tool.
 
 ---
 
-*End of checkpoint. A, B, C done and gated; D1+D2 v1 shipped (`v0.5.0-webapp`, `v0.6.0-addin`) with
-Gate D open on the items listed in §1/§3 — the highest-leverage next step is the MANUAL one: sideload
-the add-in into real Excel (`excellia-addin` prints the steps) and paste the Claude Desktop config,
-then close the gate's automation items (async-job UI, cache persistence, pane chat) and move to
-Stage E shipping. Update checkboxes as you land work — this file is the memory.*
+*End of checkpoint. A, B, C done and gated; Stage D's automation is COMPLETE (2026-07-19) — both
+faces full-featured, big files verified live through the job path, all teeth closed except the one
+inherently manual step: sideload the add-in into real Excel (`excellia-addin` prints the steps) and
+paste the Claude Desktop config block, watch both work, then close Gate D and move to Stage E
+shipping (README rewrite, videos, SECURITY.md, CHANGELOG, PyPI). Update checkboxes as you land
+work — this file is the memory.*

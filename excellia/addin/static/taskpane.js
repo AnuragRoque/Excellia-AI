@@ -133,6 +133,69 @@ $("#m-run").onclick = (e) => withButton(e.target, async () => {
   } catch (err) { say("#m-out", err.message, true); }
 });
 
+/* Categorise / summarise: fixed instructions over the same /values/map door
+   the transform section uses — one batched call, adjacent-column write. */
+
+async function mapSelection(outSel, instruction, header) {
+  await Excel.run(async (ctx) => {
+    const sel = await readSelection(ctx);
+    if (sel.columnCount !== 1) throw new Error("Select a single column of values.");
+    const data = await post("/values/map", { values: cells(sel), instruction });
+    await writeAdjacent(ctx, sel, data.results, header);
+    say(outSel, `${sel.rowCount} cells written to the adjacent column.`);
+  });
+}
+
+$("#g-run").onclick = (e) => withButton(e.target, async () => {
+  try {
+    const cats = $("#g-cats").value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (cats.length < 2) throw new Error("Give at least two comma-separated categories.");
+    await mapSelection("#g-out",
+      `Assign this value to exactly one of these categories and answer with the ` +
+      `category name only, nothing else: ${cats.join(", ")}`, "category");
+  } catch (err) { say("#g-out", err.message, true); }
+});
+
+$("#s-run").onclick = (e) => withButton(e.target, async () => {
+  try {
+    await mapSelection("#s-out",
+      "Summarise this value in at most 8 words. Answer with the summary only.", "summary");
+  } catch (err) { say("#s-out", err.message, true); }
+});
+
+/* Chat: selection (header row + data) -> /values/ask -> answer + evidence.
+   Same anti-hallucination pipeline as the web app: the LLM plans, the
+   engine computes server-side, and the evidence rows always come back. */
+
+function evidenceTable(records) {
+  if (!records || !records.length) return "";
+  const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const cols = Object.keys(records[0]);
+  const rows = records.slice(0, 30).map((r) =>
+    `<tr>${cols.map((c) => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
+  return `<table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")
+    }</tr></thead><tbody>${rows}</tbody></table>` + (records.length > 30
+    ? `<div class="hint">showing 30 of ${records.length} evidence rows</div>` : "");
+}
+
+$("#c-ask").onclick = (e) => withButton(e.target, async () => {
+  try {
+    await Excel.run(async (ctx) => {
+      const sel = await readSelection(ctx);
+      if (sel.rowCount < 2)
+        throw new Error("Select the header row plus at least one data row.");
+      const question = $("#c-q").value.trim();
+      if (!question) throw new Error("Write a question first.");
+      const columns = sel.values[0].map((v) => (v === null ? "" : String(v)));
+      const r = await post("/values/ask",
+        { columns, rows: sel.values.slice(1), question });
+      say("#c-out", (r.refused ? "Could not answer: " : "") + (r.answer || "(no answer)"));
+      $("#c-evidence").innerHTML = evidenceTable(r.evidence);
+    });
+  } catch (err) { say("#c-out", err.message, true); $("#c-evidence").innerHTML = ""; }
+});
+
 /* ---- boot ---- */
 
 Office.onReady(() => {
