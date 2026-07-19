@@ -10,7 +10,14 @@
 **Repo:** `11 Excellia Core/excellia_codebase`
 **Legacy source (read-only reference):** `../05 Excellia AI/Excellia-AI-Demo` (Flask monolith: `routes.py`, `routes2.py`)
 **Concept docs (the requirements this file absorbs):** `project concept/` — add-in concept, KYC spec, Limestone spec, Excellia demo knowledge
-**Last updated:** 2026-07-19 (ALL Gate D automation teeth closed in two passes. Pass 1:
+**Last updated:** 2026-07-19 — evening pass: **Stage E writing deliverables DONE** (rewritten
+GitHub-ready README with per-product doors, six per-component READMEs, `SECURITY.md` threat
+model, `CONTRIBUTING.md`, `CHANGELOG.md`, `LICENSE` (MIT), both recording scripts in
+`docs/recording_script.md`, architecture post draft in `docs/architecture_post.md`) plus a new
+web-app **sidebar chat** (the Ask thread, shared, reachable from every view — still one
+`POST /ask` per message). Left: the manual demos (sideload + Claude Desktop paste), recording
+the two videos (scripts ready, owner records), PyPI publish, and the git commit (owner said
+don't commit yet). Earlier same day: (ALL Gate D automation teeth closed in two passes. Pass 1:
 **async-job wiring** ("Big file mode" toggle → every heavy POST via `POST /jobs` + polling,
 live status line), **formula cache persistence** (`OfficeRuntime.storage`, survives reopen),
 **pane chat** (`/values/ask` + evidence), `README_RUNNER.md`, and a face restyle to the owner's
@@ -467,6 +474,9 @@ the web layer — test-enforced):
   - [x] **Transform studio** — instruction → preview before/after sample + recipe JSON → confirm
         apply (replace checkbox, save-as-recipe) → saved-recipe replay
   - [x] **Ask the data** — answer + evidence table + the query plan that actually ran (trust through glass)
+  - [x] **Sidebar chat** (2026-07-19) — the same Ask thread, collapsible in the sidebar and
+        reachable from every view; shared in-memory history, one `POST /ask` per message,
+        rendering only (chatWatchers pub-sub keeps both windows painted)
   - [x] **Reconciliation** — file B + keys/tolerance/fuzzy-keys or saved profile, profile save,
         four bucket tabs with match-level badges, 5-sheet report path
   - [x] **Fraud** — train (label column → metrics card + top features) · score (bands, per-row top
@@ -553,15 +563,27 @@ instructive TransformErrors naming the step (`transform.validate_recipe` rejects
 keys; `apply` wraps TypeError/CleanError with the step number) instead of leaking a raw
 TypeError — regression-tested.*
 
-### Stage E — SHIP
+### Stage E — SHIP — writing deliverables ✅ 2026-07-19; recordings + publish left
 
-- [ ] README rewrite: thesis first sentence → 60-second install → Claude Desktop block → offline agent →
-      honest privacy table (what stays local / what a cloud host sees: prompt, path, tool RESULTS)
-- [ ] 90-second screen recording: Claude Desktop cleans `messy_vendors.xlsx` (per original plan §8)
-- [ ] Second recording (30s): the same thing fully offline via `local_agent` — the differentiator
-- [ ] The post: *"Why enterprise AI logic should be an MCP server, not an app"*
-- [ ] PyPI publish (`pip install excellia`), version tags, CHANGELOG
-- [ ] `SECURITY.md` (threat model: local sockets only, what each host sees) + `CONTRIBUTING.md`
+- [x] README rewrite (2026-07-19): thesis first → products table (each linking its own README) →
+      install → six "pick your door" quick starts → tools table → honest privacy TABLE →
+      repo layout → status. GitHub-friendly, machine-agnostic paths.
+- [x] Per-component READMEs (2026-07-19, owner request): `excellia/core/README.md`,
+      `api/README.md`, `mcp_server/README.md`, `local_agent/README.md`, `webapp/README.md`,
+      `addin/README.md` — each: what it is, how to run, how to use, key files, the rules.
+- [~] 90-second screen recording: Claude Desktop cleans `messy_vendors.xlsx` — **script DONE**
+      (`docs/recording_script.md`: shot list, timed narration, exact prompts, prep checklist);
+      owner records it himself.
+- [~] Second recording (30s): fully offline via `local_agent` — **script DONE** (same file;
+      airplane-mode cold open). Owner records.
+- [x] The post: *"Why enterprise AI logic should be an MCP server, not an app"* — draft in
+      `docs/architecture_post.md` (~1,100 words, ready to publish).
+- [ ] PyPI publish (`pip install excellia`), version tags — **explicitly held** (owner:
+      "don't commit or publish"); `CHANGELOG.md` itself is written ✔ (full history 0.1.0→now
+      + Unreleased), `LICENSE` (MIT) added ✔
+- [x] `SECURITY.md` (threat model: loopback-only sockets, per-mode exposure table, storage,
+      prompt-injection posture, reporting) + `CONTRIBUTING.md` (setup + the 9 architecture
+      rules PRs are reviewed against) — 2026-07-19
 
 ---
 
@@ -699,9 +721,11 @@ of the interface: name the problem, name the fix, name the alternative tool.
 
 ---
 
-*End of checkpoint. A, B, C done and gated; Stage D's automation is COMPLETE (2026-07-19) — both
-faces full-featured, big files verified live through the job path, all teeth closed except the one
-inherently manual step: sideload the add-in into real Excel (`excellia-addin` prints the steps) and
-paste the Claude Desktop config block, watch both work, then close Gate D and move to Stage E
-shipping (README rewrite, videos, SECURITY.md, CHANGELOG, PyPI). Update checkboxes as you land
+*End of checkpoint. A, B, C done and gated; Stage D's automation is COMPLETE, and Stage E's
+WRITING is complete (2026-07-19): README + six component READMEs + SECURITY + CONTRIBUTING +
+CHANGELOG + LICENSE + both recording scripts + the architecture post, plus the web-app sidebar
+chat. What remains is exactly the human-in-the-loop list: (1) sideload the add-in into real
+Excel on Windows and Mac (`excellia-addin` prints the steps), (2) paste the Claude Desktop
+config and watch it work, (3) record the two videos from `docs/recording_script.md`,
+(4) commit (owner-held) and (5) PyPI publish (owner-held). Update checkboxes as you land
 work — this file is the memory.*

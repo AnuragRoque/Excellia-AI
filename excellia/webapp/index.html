@@ -23,6 +23,18 @@
     </div>
 
     <nav id="nav"></nav>
+
+    <div class="sidechat">
+      <button id="sc-toggle" class="sc-toggle" title="Chat with the selected file from any view. Same engine as Ask the data — every answer carries evidence.">&#128172; Chat</button>
+      <div id="sc-panel" hidden>
+        <div id="sc-thread" class="sc-thread"></div>
+        <div class="sc-bar">
+          <textarea id="sc-q" placeholder="ask the selected file…" rows="1"></textarea>
+          <button id="sc-send">Ask</button>
+        </div>
+      </div>
+    </div>
+
     <label class="bigmode" title="Heavy operations run as background jobs and are polled — the page never waits on one long request. Use for 100K+ row files.">
       <input type="checkbox" id="bigmode"> Big file mode
     </label>

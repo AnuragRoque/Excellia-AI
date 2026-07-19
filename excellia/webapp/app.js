@@ -177,8 +177,33 @@ function qualityView(v) {
 }
 
 /* Chat-style Ask: each message is still exactly one POST /ask — the thread
-   is pure rendering. History lives in memory for the session. */
+   is pure rendering. History lives in memory for the session and is SHARED
+   between the Ask view and the sidebar chat: one conversation, two windows. */
 S.chat = S.chat || [];
+const chatWatchers = new Set();
+
+function chatBubble(m) {
+  if (m.q !== undefined) return `<div class="msg user">${esc(m.q)}</div>`;
+  if (m.error)
+    return `<div class="msg bot err"><span class="who">excellia</span>${esc(m.error)}</div>`;
+  return `<div class="msg bot"><span class="who">excellia${m.refused ? " — could not answer" : ""}</span>
+       ${esc(m.answer)}
+       <details><summary>evidence (${m.matched_rows ?? 0} rows) &amp; query plan</summary>
+         ${table(m.evidence, 50)}${json(m.plan)}</details>
+     </div>`;
+}
+
+function chatNotify() { for (const fn of [...chatWatchers]) fn(); }
+
+async function chatSend(question) {
+  const file = needFile(); if (!file) return false;
+  S.chat.push({ q: question });
+  chatNotify();
+  try { S.chat.push(await api("POST", "/ask", { file, question })); }
+  catch (e) { S.chat.push({ error: e.message }); }
+  chatNotify();
+  return true;
+}
 
 function askView(v) {
   v.innerHTML = `
@@ -194,38 +219,21 @@ function askView(v) {
     </section>`;
   const thread = $("#a-thread");
 
-  const bubbleUser = (q) => `<div class="msg user">${esc(q)}</div>`;
-  const bubbleBot = (r) => r.error
-    ? `<div class="msg bot err"><span class="who">excellia</span>${esc(r.error)}</div>`
-    : `<div class="msg bot"><span class="who">excellia${r.refused ? " — could not answer" : ""}</span>
-         ${esc(r.answer)}
-         <details><summary>evidence (${r.matched_rows ?? 0} rows) &amp; query plan</summary>
-           ${table(r.evidence, 50)}${json(r.plan)}</details>
-       </div>`;
-
   const paint = () => {
+    if (!document.contains(thread)) { chatWatchers.delete(paint); return; }
     thread.innerHTML = S.chat.length
-      ? S.chat.map((m) => (m.q !== undefined ? bubbleUser(m.q) : bubbleBot(m))).join("")
+      ? S.chat.map(chatBubble).join("")
       : `<p class="hello">Ask anything about the file — totals, groups, filters, outliers.<br>
          Every number is computed, never invented.</p>`;
     thread.scrollTop = thread.scrollHeight;
   };
+  chatWatchers.add(paint);
   paint();
 
   const send = () => run($("#a-send"), async () => {
-    const file = needFile(); if (!file) return;
     const question = $("#a-q").value.trim();
     if (!question) return;
-    $("#a-q").value = "";
-    S.chat.push({ q: question });
-    paint();
-    try {
-      const r = await api("POST", "/ask", { file, question });
-      S.chat.push(r);
-    } catch (e) {
-      S.chat.push({ error: e.message });
-    }
-    paint();
+    if (await chatSend(question)) $("#a-q").value = "";
   });
   $("#a-send").onclick = send;
   $("#a-q").addEventListener("keydown", (e) => {
@@ -688,6 +696,33 @@ function boot() {
     if (e.target.value.trim()) setFile(e.target.value.trim());
   });
   if (S.file) setFile(S.file);
+
+  /* Sidebar chat — the same conversation as the Ask view, reachable from
+     every view. Rendering only; chatSend does the single POST /ask. */
+  const scPanel = $("#sc-panel"), scThread = $("#sc-thread");
+  const scPaint = () => {
+    scThread.innerHTML = S.chat.length
+      ? S.chat.map(chatBubble).join("")
+      : `<p class="hello">ask the selected file anything</p>`;
+    scThread.scrollTop = scThread.scrollHeight;
+  };
+  chatWatchers.add(scPaint);          // the sidebar never leaves the DOM
+  scPaint();
+  $("#sc-toggle").onclick = () => {
+    scPanel.hidden = !scPanel.hidden;
+    localStorage.setItem("excellia.sidechat", scPanel.hidden ? "0" : "1");
+    if (!scPanel.hidden) { scPaint(); $("#sc-q").focus(); }
+  };
+  if (localStorage.getItem("excellia.sidechat") === "1") scPanel.hidden = false;
+  const scSend = () => run($("#sc-send"), async () => {
+    const q = $("#sc-q").value.trim();
+    if (!q) return;
+    if (await chatSend(q)) $("#sc-q").value = "";
+  });
+  $("#sc-send").onclick = scSend;
+  $("#sc-q").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); scSend(); }
+  });
 
   const big = $("#bigmode");
   big.checked = S.big;
