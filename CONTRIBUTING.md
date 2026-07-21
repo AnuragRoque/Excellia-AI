@@ -39,6 +39,27 @@ Opt-in slow tests: `EXCELLIA_RUN_MCP_IT=1 pytest` (live MCP stdio round-trip),
 Decisions already made (don't relitigate without new evidence): `EXCELLIA_FEATURES.md` §11.
 Deliberate non-features (don't PR them): §7.
 
+## Commit messages
+
+We follow [Conventional Commits](https://www.conventionalcommits.org). One commit = one logical
+change; the subject says *what*, the body says *why*.
+
+```
+type(scope): imperative subject, no trailing period, ≤72 chars
+
+Optional body: why the change was needed, not a restatement of the diff.
+Reference tests, the stage in EXCELLIA_FEATURES.md, or an issue.
+```
+
+- **types:** `feat` · `fix` · `docs` · `refactor` · `perf` · `test` · `chore`
+- **scopes:** `core` · `api` · `mcp` · `webapp` · `addin` · `agent` (omit if it spans several)
+- Prefer several small, self-contained commits over one large drop — each should build and pass
+  `pytest` on its own.
+
+Examples: `feat(core): add IFSC format detection to the profiler` ·
+`fix(api): coerce "null" sentinel params to None at the boundary` ·
+`docs(readme): add screenshots gallery`.
+
 ## Practical notes
 
 - Tests accompany every behaviour change; the suite is fast, offline, and needs no Ollama —
