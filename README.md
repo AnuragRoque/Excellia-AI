@@ -143,6 +143,26 @@ No args, no ports.
 **Every door with exact commands and troubleshooting:** [docs/RUNNING.md](docs/RUNNING.md) ·
 per-server runner's guide: [README_RUNNER.md](README_RUNNER.md).
 
+## Screenshots
+
+> Drop PNGs into `docs/images/` with these exact names and they'll render here automatically.
+> Capture the web app at `http://127.0.0.1:8000/app/` (run `excellia-api`) and the Excel views
+> from a live sideload (`excellia-addin`). On Windows, `Win+Shift+S` snips any region.
+
+| The web app — Quality view | Ask, with evidence |
+|---|---|
+| ![Web app quality view](docs/images/webapp-quality.png) | ![Ask the data with an evidence table](docs/images/webapp-ask.png) |
+
+| Excel add-in — `=XAI.*` formulas | Excel add-in — chatbot pane |
+|---|---|
+| ![XAI formulas in Excel cells](docs/images/addin-formulas.png) | ![Task-pane chatbot over a selection](docs/images/addin-chat.png) |
+
+| Fraud scoring — per-row factors | Claude Desktop driving the MCP server |
+|---|---|
+| ![Fraud scores with top factors](docs/images/webapp-fraud.png) | ![Claude Desktop calling Excellia tools](docs/images/claude-desktop.png) |
+
+*Suggested shots — swap in whichever tell your story best.*
+
 ## Nineteen tools
 
 | Tool | What it does |
