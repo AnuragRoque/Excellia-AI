@@ -1,8 +1,23 @@
 # Excellia
 
+![License: MIT](https://img.shields.io/badge/License-MIT-informational)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![Tests](https://img.shields.io/badge/tests-240%20passing-brightgreen)
+![Privacy](https://img.shields.io/badge/privacy-air--gapped-success)
+![Status](https://img.shields.io/badge/stages%20A–D-done-blueviolet)
+![Version](https://img.shields.io/badge/version-0.6.0-lightgrey)
+
 **Air-gapped spreadsheet intelligence.** Profile, validate, anomaly-check, reconcile, transform,
 fraud-score, and KYC-match Excel/CSV files — with AI assistance — while **not a single row leaves
 your machine**.
+
+> **One engine, six doors.** A pure-Python core does the work; a FastAPI server, an MCP server, a
+> web app, an Excel add-in (`=XAI.*` formulas + a chatbot pane), and an offline Ollama agent are
+> just faces on it. This is multi-tool software: pick the door that fits your workflow.
+
+**Contents:** [Products](#the-products-in-this-repo) · [Install](#install) ·
+[Pick your door](#pick-your-door) · [Screenshots](#screenshots) · [Tools](#nineteen-tools) ·
+[Privacy](#privacy--the-honest-version) · [Layout](#repository-layout) · [Status](#status)
 
 One core engine (pure Python), many doors: point **Claude Desktop** at it for convenience, or a
 fully offline **Ollama** agent for regulated environments — the same server, zero code changes,
