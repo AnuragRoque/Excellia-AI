@@ -3,7 +3,7 @@
 > **This file is the saved memory of the project.** If a future session (or a future AI) gets ONLY this
 > file, it must be able to continue building without asking what Excellia is, what exists, what is next,
 > or where any feature belongs. Update the checkboxes here as work lands. The companion file
-> `EXCELLIA_MCP_PLAN.md` holds the original thesis and Phase 1–3 shipping plan; this file goes further —
+> `MCP_PLAN.md` holds the original thesis and Phase 1–3 shipping plan; this file goes further —
 > it is the **full product**, staged so the boring working skeleton always ships before the exciting features.
 
 **Owner:** Anurag Singh
