@@ -230,7 +230,7 @@ EXCELLIA_BIG=1 pytest                   # + 500K-row memory-budget test (~90s)
 
 Contributions: [CONTRIBUTING.md](CONTRIBUTING.md) · changes: [CHANGELOG.md](CHANGELOG.md) ·
 the full staged build plan and status board: [EXCELLIA_FEATURES.md](EXCELLIA_FEATURES.md) ·
-the original thesis: [EXCELLIA_MCP_PLAN.md](EXCELLIA_MCP_PLAN.md) · why the whole thing is an
+the original thesis: [MCP_PLAN.md](MCP_PLAN.md) · why the whole thing is an
 MCP server and not an app: [docs/architecture_post.md](docs/architecture_post.md).
 
 ## Status
