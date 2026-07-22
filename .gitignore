@@ -22,3 +22,8 @@ Thumbs.db
 *.pkl
 *.duckdb
 scratch/
+
+# Internal working notes (kept local, not published)
+project concept/
+
+
